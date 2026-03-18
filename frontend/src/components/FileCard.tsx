@@ -222,7 +222,7 @@ export function FileCard({
 
                 <Button
                   onClick={onConvert}
-                  className="h-10 w-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25"
+                  className="h-11 w-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25"
                 >
                   Convert to {getFormatLabel(file.selectedFormat)}
                 </Button>
@@ -243,13 +243,13 @@ export function FileCard({
 
         {file.status === "done" && file.downloadUrl && (
           <div className="mt-3 space-y-3">
-            {/* #21 — Image preview */}
+            {/* #21 — Image preview (#37 checkerboard for transparency) */}
             {IMAGE_PREVIEW_FORMATS.has(file.selectedFormat || "") && (
               <div className="overflow-hidden rounded-lg border border-border">
                 <img
                   src={file.downloadUrl}
                   alt="Preview"
-                  className="max-h-48 w-full object-contain bg-muted"
+                  className="max-h-48 w-full object-contain bg-checkerboard"
                 />
               </div>
             )}
@@ -272,8 +272,11 @@ export function FileCard({
                       <Badge
                         key={format}
                         variant="outline"
-                        className="cursor-pointer px-2 py-1 text-xs transition-colors hover:border-primary/40 hover:text-foreground"
+                        className="cursor-pointer px-2 py-1 text-xs transition-all hover:border-primary/60 hover:bg-accent/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        tabIndex={0}
+                        role="button"
                         onClick={() => onConvertTo(format)}
+                        onKeyDown={(e) => e.key === "Enter" && onConvertTo(format)}
                       >
                         {getFormatLabel(format)}
                       </Badge>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Link, Loader2, Upload } from "lucide-react";
+import { Keyboard, Link, Loader2, Upload } from "lucide-react";
 import { fetchFileFromUrl } from "@/lib/api";
 
 interface DropZoneProps {
@@ -17,6 +17,8 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // #31 — counter prevents false dragleave when cursor crosses child elements
+  const dragCounter = useRef(0);
 
   // #19 — Clipboard paste
   useEffect(() => {
@@ -29,19 +31,27 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
     return () => document.removeEventListener("paste", handlePaste);
   }, [onFilesAdded]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  // #31 — use dragenter counter instead of dragover/dragleave pair
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    dragCounter.current++;
     setIsDragOver(true);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); // required to allow drop
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragOver(false);
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragOver(false);
   }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      dragCounter.current = 0;
       setIsDragOver(false);
       if (e.dataTransfer.files.length > 0) {
         onFilesAdded(e.dataTransfer.files);
@@ -64,10 +74,19 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
     [onFilesAdded]
   );
 
-  // #20 — URL fetch
+  // #20 + #38 — URL fetch with client-side validation
   const handleFetchUrl = useCallback(async () => {
     const url = urlValue.trim();
     if (!url) return;
+
+    // #38 — validate before sending
+    try {
+      new URL(url);
+    } catch {
+      setUrlError("Please enter a valid URL (e.g. https://example.com/file.pdf)");
+      return;
+    }
+
     setUrlLoading(true);
     setUrlError(null);
     try {
@@ -89,7 +108,7 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
         <button
           type="button"
           onClick={() => setTab("drop")}
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
             tab === "drop"
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
@@ -101,7 +120,7 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
         <button
           type="button"
           onClick={() => setTab("url")}
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
             tab === "url"
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
@@ -115,8 +134,8 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
       {tab === "drop" ? (
         <motion.div
           onClick={handleClick}
+          onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
-          onDragEnter={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           animate={isDragOver ? { scale: 1.02 } : { scale: 1 }}
@@ -163,16 +182,23 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
           </div>
 
           {!compact && (
-            <button
-              type="button"
-              className="rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                inputRef.current?.click();
-              }}
-            >
-              Browse files
-            </button>
+            <div className="flex flex-col items-center gap-2">
+              <button
+                type="button"
+                className="cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  inputRef.current?.click();
+                }}
+              >
+                Browse files
+              </button>
+              {/* #30 — paste hint */}
+              <span className="flex items-center gap-1 text-xs text-muted-foreground/60">
+                <Keyboard className="h-3 w-3" />
+                or paste with Ctrl+V / ⌘V
+              </span>
+            </div>
           )}
         </motion.div>
       ) : (
@@ -192,13 +218,13 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
               }}
               onKeyDown={(e) => e.key === "Enter" && handleFetchUrl()}
               placeholder="https://example.com/file.pdf"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary transition-colors"
             />
             <button
               type="button"
               onClick={handleFetchUrl}
               disabled={urlLoading || !urlValue.trim()}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {urlLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

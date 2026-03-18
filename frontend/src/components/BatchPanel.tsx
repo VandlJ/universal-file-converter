@@ -78,12 +78,15 @@ export function BatchPanel({
               <Badge
                 key={format}
                 variant={batchFormat === format ? "default" : "outline"}
-                className={`cursor-pointer px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`cursor-pointer px-3 py-1.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
                   batchFormat === format
-                    ? "bg-primary/15 border-primary text-primary"
-                    : "hover:border-primary/40 hover:text-foreground"
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/25"
+                    : "hover:border-primary/60 hover:bg-accent/60 hover:shadow-sm"
                 }`}
+                tabIndex={0}
+                role="button"
                 onClick={() => setBatchFormat(format)}
+                onKeyDown={(e) => e.key === "Enter" && setBatchFormat(format)}
               >
                 {getFormatLabel(format)}
               </Badge>
@@ -92,7 +95,7 @@ export function BatchPanel({
         </div>
 
         <Button
-          className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+          className="w-full min-h-[44px] bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed"
           disabled={!batchFormat}
           onClick={() => batchFormat && onConvertAll(batchFormat)}
         >

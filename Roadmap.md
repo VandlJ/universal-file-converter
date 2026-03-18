@@ -156,41 +156,41 @@ Architecture problems that limit reliability and maintainability.
 
 Small but visible quality-of-life issues that make the app feel unfinished.
 
-- [ ] **#27 — Missing `cursor: pointer` on interactive elements**
-  Several clickable elements (format badges in `FormatSelector`, quick-convert badges in `FileCard`, category tabs in `BatchPanel`, the drop zone itself) render the default cursor instead of a pointer. Every element the user can click should respond visually. Audit the full component tree and add `cursor-pointer` where missing, `cursor-not-allowed opacity-50` on disabled states.
+- [x] **#27 — Missing `cursor: pointer` on interactive elements** ✅ Fixed
+  Full component audit: `cursor-pointer` added to all badge/tab/button elements; `cursor-not-allowed` on disabled states (URL fetch button, batch convert button).
 
-- [ ] **#28 — No hover/focus ring on format badges**
-  Format badges in `FormatSelector` and the quick-convert row use only a colour change on hover — no border highlight or ring. Add `focus-visible:ring-2 focus-visible:ring-primary/50` and a more pronounced `hover:border-primary hover:shadow-sm` so keyboard and mouse users both see clear affordance.
+- [x] **#28 — No hover/focus ring on format badges** ✅ Fixed
+  `FormatSelector.tsx` + `FileCard.tsx` — all badges now have `hover:border-primary/60 hover:bg-accent/60 hover:shadow-sm` and `focus-visible:ring-2 focus-visible:ring-primary/50`. Keyboard navigation works correctly with `tabIndex={0}` + `onKeyDown` Enter handler.
 
-- [ ] **#29 — Active/selected badge state is too subtle**
-  The selected output format badge uses `bg-primary/15 border-primary text-primary` — on dark mode this is hard to distinguish from unselected. Increase contrast: `bg-primary text-primary-foreground` for the selected state, consistent with how the "Convert" button looks.
+- [x] **#29 — Active/selected badge state is too subtle** ✅ Fixed
+  `FormatSelector.tsx` + `BatchPanel.tsx` — selected state changed from `bg-primary/15 border-primary text-primary` to full `bg-primary text-primary-foreground border-primary shadow-sm`. High contrast on both light and dark.
 
-- [ ] **#30 — Drop zone has no visual paste hint**
-  Now that Ctrl+V paste is supported, users don't know it's possible. Add a small `Ctrl+V` keyboard hint below the "Browse files" button, similar to how Figma and Linear surface this.
+- [x] **#30 — Drop zone has no visual paste hint** ✅ Fixed
+  `DropZone.tsx` — keyboard icon + "or paste with Ctrl+V / ⌘V" hint below "Browse files" button.
 
-- [ ] **#31 — No drag-over highlight when a file enters from outside the zone**
-  The scale animation triggers correctly, but the border colour doesn't change until `dragenter` fires on the zone itself — if the cursor enters directly onto a child element the highlight is missed. Bind `onDragOver` to the outer container and use a `dragenter`/`dragleave` counter to avoid false negatives.
+- [x] **#31 — No drag-over highlight when a file enters from outside the zone** ✅ Fixed
+  `DropZone.tsx` — replaced `dragover`/`dragleave` pair with `dragCounter` ref. Counter increments on `dragenter`, decrements on `dragleave`; highlight clears only when counter reaches 0.
 
-- [ ] **#32 — FileCard progress bar has no label**
-  The `ProgressBar` shows a numeric percentage as a bar fill but no text readout. Add `{progress}%` inside or beside the bar so users know at a glance whether conversion is at 30% or 90%.
+- [x] **#32 — FileCard progress bar has no label** ✅ Already done
+  `ProgressBar.tsx` already renders `{progress}%` text on the right of the bar.
 
-- [ ] **#33 — No empty-state illustration**
-  When the file list is empty the page below the drop zone is a blank void. A light SVG illustration or a short two-line prompt ("Drop your first file above to get started") would make the initial state feel intentional rather than broken.
+- [x] **#33 — No empty-state illustration** ✅ Fixed
+  `page.tsx` — `FileStack` icon + two-line prompt when `files.length === 0`.
 
-- [ ] **#34 — Mobile layout breaks at ≤ 480px**
-  The `BatchPanel` format badge grid overflows on small screens and the `FileCard` option collapsible touch target is too small (~24px). Needs a responsive audit: `flex-wrap` badge grids, larger touch targets (`min-h-[44px]`), and full-width buttons on mobile.
+- [x] **#34 — Mobile layout breaks at ≤ 480px** ✅ Fixed
+  `BatchPanel.tsx` + `FileCard.tsx` — convert buttons raised to `min-h-[44px]`/`h-11`, badge grids already `flex-wrap`.
 
-- [ ] **#35 — No toast on successful batch download**
-  When "Download all as ZIP" succeeds the user only sees the browser's file-save dialog — there's no success toast. Add `toast.success("ZIP downloaded")` after the blob URL is triggered.
+- [x] **#35 — No toast on successful batch download** ✅ Fixed
+  `page.tsx` — `toast.success("ZIP with N files downloaded")` fires after blob URL is triggered.
 
-- [ ] **#36 — Conversion history entries have no timestamp**
-  History entries show filename + download link but not when the conversion happened. Add a relative timestamp (`2 min ago`, `yesterday`) using `Intl.RelativeTimeFormat` so users can distinguish sessions.
+- [x] **#36 — Conversion history entries have no timestamp** ✅ Fixed
+  `page.tsx` — `relativeTime()` helper outputs `"just now"`, `"5m ago"`, `"2h ago"`, `"3d ago"` beside each history entry.
 
-- [ ] **#37 — Dark mode checkerboard for transparent image previews**
-  The converted image thumbnail uses `bg-muted` as its background. For transparent PNGs this conceals the transparency. Add a CSS checkerboard pattern (two-colour `linear-gradient`) via a `.bg-checkerboard` utility class in `globals.css`.
+- [x] **#37 — Dark mode checkerboard for transparent image previews** ✅ Fixed
+  `globals.css` — `.bg-checkerboard` utility with `linear-gradient` pattern, dark variant via `.dark .bg-checkerboard`. Applied to `<img>` in `FileCard.tsx`.
 
-- [ ] **#38 — URL input has no URL validation**
-  The "Fetch" button is enabled for any non-empty string — including obviously invalid inputs like `"hello"`. Add basic URL validation (`URL` constructor try/catch) client-side before sending the request, with an inline error.
+- [x] **#38 — URL input has no URL validation** ✅ Fixed
+  `DropZone.tsx` — `new URL(url)` try/catch runs before sending the fetch request; shows inline error for obviously invalid input.
 
 ---
 
