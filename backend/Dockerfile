@@ -1,7 +1,10 @@
 FROM python:3.12-slim
 
-# System deps for conversions
-RUN apt-get update && apt-get install -y \
+# Install system dependencies required at runtime.
+# --no-install-recommends keeps the layer lean.
+# curl is included for the Docker healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     libmagic1 \
     pandoc \
     libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress \
@@ -13,10 +16,21 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Create a dedicated non-root user.
+# -m creates a home dir so LibreOffice can write its per-user config.
+RUN groupadd -r appgroup \
+    && useradd -r -g appgroup -m -d /home/appuser -s /sbin/nologin appuser
+
 WORKDIR /app
-COPY requirements.txt .
+
+# Copy requirements first — changes to source code won't bust this cache layer.
+COPY --chown=appuser:appgroup requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+
+# Copy application source code.
+COPY --chown=appuser:appgroup . .
+
+USER appuser
 
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

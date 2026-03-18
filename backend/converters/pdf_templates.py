@@ -35,7 +35,7 @@ def generate_pdf_css(options: dict) -> str:
         page_size += " landscape"
 
     css_parts = [
-        f"@page {{",
+        "@page {",
         f"  size: {page_size};",
         f"  margin: {margins};",
     ]
