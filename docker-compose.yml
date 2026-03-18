@@ -17,6 +17,9 @@ services:
       - CLEANUP_INTERVAL_SECONDS=3600
       - TESSERACT_LANGUAGES=ces+eng+deu
       - ALLOWED_ORIGINS=http://localhost:3000
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -24,5 +27,19 @@ services:
       retries: 3
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   tmp_data:
+  redis_data:

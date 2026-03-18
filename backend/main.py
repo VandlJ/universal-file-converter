@@ -21,16 +21,20 @@ from converters.image import ImageConverter
 from converters.ocr import OcrConverter
 from converters.presentation import PresentationConverter
 from format_registry import FORMAT_MAP, get_formats
+from job_store import JobStore
 from models import ConversionOptions, ConvertResponse, DetectionResponse, JobStatusResponse
 from utils.cleanup import cleanup_on_startup, cleanup_scheduler
 from utils.detection import detect_file
 from utils.zip_builder import create_zip
 
 # ---------------------------------------------------------------------------
-# Job store (in-memory)
+# Job store
 # ---------------------------------------------------------------------------
 
-jobs: dict[str, dict[str, Any]] = {}
+job_store = JobStore(
+    redis_url=settings.REDIS_URL,
+    ttl=settings.CLEANUP_INTERVAL_SECONDS,
+)
 
 CONVERTERS = {
     "image": ImageConverter(),
@@ -56,6 +60,7 @@ def _sanitize_filename(filename: str) -> str:
     name = Path(filename).name
     return re.sub(r"[^\w\-.]", "_", name) or "upload"
 
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -66,19 +71,22 @@ cleanup_task: asyncio.Task | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global cleanup_task
+    await job_store.connect()
+    logger.info(f"Job store backend: {job_store.backend}")
     await cleanup_on_startup(settings.TEMP_DIR)
     cleanup_task = asyncio.create_task(
         cleanup_scheduler(
             settings.TEMP_DIR,
             settings.CLEANUP_INTERVAL_SECONDS,
             settings.CLEANUP_INTERVAL_SECONDS,
-            jobs,
+            job_store,
         )
     )
     logger.info("Application started")
     yield
     if cleanup_task:
         cleanup_task.cancel()
+    await job_store.close()
     logger.info("Application shutdown")
 
 
@@ -105,7 +113,7 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     """Health check endpoint for load balancers and Docker healthcheck."""
-    return {"status": "ok"}
+    return {"status": "ok", "store": job_store.backend}
 
 
 @app.get("/api/formats")
@@ -126,13 +134,18 @@ async def detect_uploaded_file(file: UploadFile = File(...)):
     temp_path = temp_dir / safe_name
 
     try:
-        content = await file.read()
-        if len(content) > settings.MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File is {len(content) / 1_048_576:.1f} MB. Maximum allowed is {settings.MAX_FILE_SIZE / 1_048_576:.0f} MB.",
-            )
-        temp_path.write_bytes(content)
+        # Stream to disk, enforcing size limit
+        bytes_written = 0
+        with open(temp_path, "wb") as out_f:
+            while chunk := await file.read(65536):
+                bytes_written += len(chunk)
+                if bytes_written > settings.MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds maximum allowed size of {settings.MAX_FILE_SIZE // 1_048_576} MB.",
+                    )
+                out_f.write(chunk)
+
         result = await detect_file(str(temp_path), file.filename)
         return DetectionResponse(**result)
     finally:
@@ -181,36 +194,45 @@ async def convert_file(
             detail=f"Output format '{output_format}' not supported for category '{category}'",
         )
 
-    # Create job
+    # Create job directories
     job_id = str(uuid.uuid4())
     input_dir = Path(settings.TEMP_DIR) / job_id / "input"
     output_dir = Path(settings.TEMP_DIR) / job_id / "output"
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save uploaded file (sanitize filename to prevent path traversal)
+    # Stream uploaded file to disk, enforcing size limit
     input_path = input_dir / _sanitize_filename(file.filename)
-    content = await file.read()
-    if len(content) > settings.MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File is {len(content) / 1_048_576:.1f} MB. Maximum allowed is {settings.MAX_FILE_SIZE / 1_048_576:.0f} MB.",
-        )
-    input_path.write_bytes(content)
+    try:
+        bytes_written = 0
+        with open(input_path, "wb") as out_f:
+            while chunk := await file.read(65536):
+                bytes_written += len(chunk)
+                if bytes_written > settings.MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds maximum allowed size of {settings.MAX_FILE_SIZE // 1_048_576} MB.",
+                    )
+                out_f.write(chunk)
+    except HTTPException:
+        shutil.rmtree(Path(settings.TEMP_DIR) / job_id, ignore_errors=True)
+        raise
 
     # Register job
-    jobs[job_id] = {
+    job: dict[str, Any] = {
         "job_id": job_id,
         "status": "pending",
         "progress": 0,
         "error": None,
         "input_files": [file.filename],
         "output_files": [],
-        "created_at": datetime.now(),
+        "created_at": datetime.now().isoformat(),
+        "created_at_ts": datetime.now().timestamp(),
         "category": category,
         "output_format": output_format,
         "options": opts,
     }
+    await job_store.set(job_id, job)
 
     # Start conversion in background with rate limiting
     asyncio.create_task(
@@ -245,20 +267,27 @@ async def _run_conversion(
     options: dict,
 ) -> None:
     """Background task that runs the actual conversion."""
-    job = jobs.get(job_id)
+    job = await job_store.get(job_id)
     if not job:
         return
 
     job["status"] = "processing"
     job["progress"] = 10
+    await job_store.set(job_id, job)
+
+    # Progress callback: updates job dict and persists to store
+    async def on_progress(pct: int) -> None:
+        job["progress"] = pct
+        await job_store.set(job_id, job)
 
     try:
         converter = CONVERTERS.get(category)
         if not converter:
             raise ValueError(f"No converter for category: {category}")
 
-        job["progress"] = 30
-        output_path = await converter.convert(input_path, output_format, options)
+        output_path = await converter.convert(
+            input_path, output_format, options, on_progress
+        )
 
         # Move output to job output dir if not already there
         if output_path.parent != output_dir:
@@ -274,23 +303,26 @@ async def _run_conversion(
         job["status"] = "completed"
         job["progress"] = 100
         job["output_files"] = output_files
+        await job_store.set(job_id, job)
         logger.info(f"Job {job_id} completed: {output_files}")
 
     except NotImplementedError as e:
         job["status"] = "failed"
         job["error"] = str(e)
+        await job_store.set(job_id, job)
         logger.warning(f"Job {job_id} failed: {e}")
 
     except Exception as e:
         job["status"] = "failed"
         job["error"] = "Conversion failed. Please try again."
+        await job_store.set(job_id, job)
         logger.error(f"Job {job_id} failed with error: {e}")
 
 
 @app.get("/api/status/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(job_id: str):
     """Poll conversion progress."""
-    job = jobs.get(job_id)
+    job = await job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -306,7 +338,7 @@ async def get_job_status(job_id: str):
 @app.get("/api/download/{job_id}")
 async def download_file(job_id: str):
     """Download converted file."""
-    job = jobs.get(job_id)
+    job = await job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -332,7 +364,7 @@ async def download_file(job_id: str):
 @app.get("/api/download/{job_id}/zip")
 async def download_zip(job_id: str):
     """Download all converted files as ZIP."""
-    job = jobs.get(job_id)
+    job = await job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -356,7 +388,7 @@ async def download_zip(job_id: str):
 @app.delete("/api/job/{job_id}")
 async def delete_job(job_id: str):
     """Clean up job files."""
-    job = jobs.pop(job_id, None)
+    job = await job_store.delete(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 

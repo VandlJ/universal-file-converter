@@ -3,7 +3,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, ProgressCallback
 
 try:
     from pdf2image import convert_from_path
@@ -21,7 +21,11 @@ except ImportError:
 
 class PresentationConverter(BaseConverter):
     async def convert(
-        self, input_path: Path, output_format: str, options: dict
+        self,
+        input_path: Path,
+        output_format: str,
+        options: dict,
+        on_progress: ProgressCallback | None = None,
     ) -> Path:
         ext = input_path.suffix.lower().lstrip(".")
         output_dir = input_path.parent.parent / "output"
@@ -29,24 +33,50 @@ class PresentationConverter(BaseConverter):
         stem = input_path.stem
         dpi = options.get("dpi", 150)
 
+        if on_progress:
+            await on_progress(10)
+
         if output_format == "pdf" and ext in ("pptx", "odp"):
-            return await self._to_pdf_libreoffice(input_path, output_dir, stem)
+            result = await self._to_pdf_libreoffice(input_path, output_dir, stem, on_progress)
+            if on_progress:
+                await on_progress(95)
+            return result
 
         if output_format in ("png", "jpg") and ext in ("pptx", "odp"):
-            # PPTX/ODP → PDF → images
+            if on_progress:
+                await on_progress(20)
             pdf_path = await self._to_pdf_libreoffice(input_path, output_dir, stem)
-            return await self._pdf_to_images(pdf_path, output_dir, stem, output_format, dpi)
+            if on_progress:
+                await on_progress(60)
+            result = await self._pdf_to_images(pdf_path, output_dir, stem, output_format, dpi)
+            if on_progress:
+                await on_progress(95)
+            return result
 
         if output_format in ("png", "jpg") and ext == "pdf":
-            return await self._pdf_to_images(input_path, output_dir, stem, output_format, dpi)
+            if on_progress:
+                await on_progress(30)
+            result = await self._pdf_to_images(input_path, output_dir, stem, output_format, dpi)
+            if on_progress:
+                await on_progress(95)
+            return result
 
         if output_format == "pptx" and ext == "pdf":
-            return await self._pdf_to_pptx(input_path, output_dir, stem, dpi)
+            if on_progress:
+                await on_progress(30)
+            result = await self._pdf_to_pptx(input_path, output_dir, stem, dpi)
+            if on_progress:
+                await on_progress(95)
+            return result
 
         raise ValueError(f"Unsupported conversion: {ext} → {output_format}")
 
     async def _to_pdf_libreoffice(
-        self, input_path: Path, output_dir: Path, stem: str
+        self,
+        input_path: Path,
+        output_dir: Path,
+        stem: str,
+        on_progress: ProgressCallback | None = None,
     ) -> Path:
         """Convert PPTX/ODP to PDF using LibreOffice headless."""
         proc = await asyncio.create_subprocess_exec(
@@ -67,6 +97,9 @@ class PresentationConverter(BaseConverter):
         output_path = output_dir / f"{stem}.pdf"
         if not output_path.exists():
             raise RuntimeError("LibreOffice did not produce PDF output")
+
+        if on_progress:
+            await on_progress(80)
 
         logger.info(f"Presentation → PDF: {input_path.name}")
         return output_path
@@ -91,8 +124,7 @@ class PresentationConverter(BaseConverter):
             images[0].save(str(out), format=fmt, quality=90)
             return out
 
-        # Multiple pages: save first, rest will be in output dir
-        # Return the first image as the primary output
+        # Multiple pages: save all
         for i, img in enumerate(images):
             out = output_dir / f"{stem}_page{i + 1}.{image_format}"
             fmt = "JPEG" if image_format == "jpg" else "PNG"
@@ -112,13 +144,12 @@ class PresentationConverter(BaseConverter):
         images = convert_from_path(str(pdf_path), dpi=dpi)
         prs = Presentation()
 
-        # Set slide dimensions to match first page aspect ratio
         if images:
             w, h = images[0].size
             prs.slide_width = Inches(10)
             prs.slide_height = Inches(10 * h / w)
 
-        blank_layout = prs.slide_layouts[6]  # Blank layout
+        blank_layout = prs.slide_layouts[6]
 
         for i, img in enumerate(images):
             slide = prs.slides.add_slide(blank_layout)
@@ -131,15 +162,8 @@ class PresentationConverter(BaseConverter):
         output_path = output_dir / f"{stem}.pptx"
         prs.save(str(output_path))
 
-        # Cleanup temp images
         for f in output_dir.glob("_temp_slide_*.png"):
             f.unlink()
 
         logger.info(f"PDF → PPTX: {len(images)} slides")
         return output_path
-
-    def supported_input_formats(self) -> list[str]:
-        return ["pptx", "odp", "pdf"]
-
-    def supported_output_formats(self) -> list[str]:
-        return ["pdf", "png", "jpg", "pptx"]

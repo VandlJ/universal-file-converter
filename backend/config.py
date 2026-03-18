@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:3000"
     LOG_LEVEL: str = "INFO"
     TEMP_DIR: str = "/tmp/converter"
+    REDIS_URL: str | None = None  # e.g. redis://redis:6379
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod

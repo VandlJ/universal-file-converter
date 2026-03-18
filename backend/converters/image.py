@@ -4,7 +4,7 @@ from pathlib import Path
 from loguru import logger
 from PIL import Image, ImageOps
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, ProgressCallback
 
 # Register HEIF/HEIC opener if available
 try:
@@ -42,7 +42,11 @@ RAW_EXTENSIONS = {"cr2", "nef", "arw"}
 
 class ImageConverter(BaseConverter):
     async def convert(
-        self, input_path: Path, output_format: str, options: dict
+        self,
+        input_path: Path,
+        output_format: str,
+        options: dict,
+        on_progress: ProgressCallback | None = None,
     ) -> Path:
         ext = input_path.suffix.lower().lstrip(".")
         output_dir = input_path.parent.parent / "output"
@@ -52,13 +56,19 @@ class ImageConverter(BaseConverter):
 
         # SVG output: raster → vector trace via potrace
         if output_format == "svg":
-            return await self._to_svg(input_path, output_path, ext, options)
+            return await self._to_svg(input_path, output_path, ext, options, on_progress)
+
+        if on_progress:
+            await on_progress(20)
 
         # Open image
         img = self._open_image(input_path, ext)
 
         # Apply resize
         img = self._apply_resize(img, options)
+
+        if on_progress:
+            await on_progress(50)
 
         # Strip EXIF if requested
         if options.get("stripMetadata", False):
@@ -77,8 +87,14 @@ class ImageConverter(BaseConverter):
         # Save with format-specific options
         save_kwargs = self._get_save_kwargs(output_format, options)
 
+        if on_progress:
+            await on_progress(80)
+
         if output_format == "ico":
-            return self._save_ico(img, output_path)
+            result = self._save_ico(img, output_path)
+            if on_progress:
+                await on_progress(100)
+            return result
 
         pillow_format = PILLOW_FORMAT_MAP.get(output_format)
         if not pillow_format:
@@ -188,15 +204,26 @@ class ImageConverter(BaseConverter):
         return output_path
 
     async def _to_svg(
-        self, input_path: Path, output_path: Path, ext: str, options: dict
+        self,
+        input_path: Path,
+        output_path: Path,
+        ext: str,
+        options: dict,
+        on_progress: ProgressCallback | None,
     ) -> Path:
         """Convert raster image to SVG via potrace."""
+        if on_progress:
+            await on_progress(20)
+
         # First convert to PBM (required by potrace)
         img = self._open_image(input_path, ext)
         img = self._apply_resize(img, options)
         bw = img.convert("1")  # 1-bit black and white
         pbm_path = output_path.with_suffix(".pbm")
         bw.save(str(pbm_path), format="PPM")
+
+        if on_progress:
+            await on_progress(40)
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -219,17 +246,7 @@ class ImageConverter(BaseConverter):
         if not output_path.exists():
             raise RuntimeError("potrace failed to produce SVG output")
 
+        if on_progress:
+            await on_progress(90)
+
         return output_path
-
-    def supported_input_formats(self) -> list[str]:
-        return [
-            "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp",
-            "heic", "heif", "avif", "svg", "ico",
-            "cr2", "nef", "arw", "jxl", "qoi",
-        ]
-
-    def supported_output_formats(self) -> list[str]:
-        return [
-            "jpg", "png", "gif", "bmp", "tiff", "webp",
-            "heic", "avif", "ico", "jxl", "pdf", "svg",
-        ]

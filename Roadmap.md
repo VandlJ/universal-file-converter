@@ -85,23 +85,23 @@ Things that are broken right now.
 
 Architecture problems that limit reliability and maintainability.
 
-- [ ] **#8 — In-memory job store: zero resilience, no horizontal scaling**
-  `main.py:32` — `jobs: dict` means a backend restart wipes all state. Can't run 2 backend instances behind a load balancer. Minimum fix: Redis with `job_id` as key, TTL matching cleanup interval. Proper fix: ARQ or Celery task queue with Redis broker.
+- [x] **#8 — In-memory job store: zero resilience, no horizontal scaling** ✅ Fixed
+  Added `job_store.py` — `JobStore` class backed by Redis (`redis.asyncio`) with automatic in-memory fallback. Jobs stored with TTL = cleanup interval. Redis container added to `docker-compose.yml` with AOF persistence. Backend connects on startup via `REDIS_URL` env var; gracefully falls back to in-memory if Redis is unreachable. Cleanup scheduler now calls `job_store.delete_stale()` to prune in-memory entries.
 
 - [x] **#9 — `subprocess.run()` blocks the async event loop** ✅ Fixed
   All converters (`document.py`, `image.py`, `presentation.py`) and `detection.py` now use `asyncio.create_subprocess_exec()` + `await proc.communicate()` with proper timeout handling.
 
-- [ ] **#10 — FORMAT_MAP, EXTENSION_TO_CATEGORY, and converter `supported_*` methods are triplicated**
-  `format_registry.py` and each converter class each list supported formats independently. The `supported_input_formats()` / `supported_output_formats()` methods on `BaseConverter` are **never called** — `FORMAT_MAP` is the sole source of truth. This dead code will diverge from reality. Either drive everything from `FORMAT_MAP` or make converters authoritative and build `FORMAT_MAP` from them.
+- [x] **#10 — FORMAT_MAP, EXTENSION_TO_CATEGORY, and converter `supported_*` methods are triplicated** ✅ Fixed
+  Removed `supported_input_formats()` and `supported_output_formats()` abstract methods from `BaseConverter` and all 5 converter implementations. `FORMAT_MAP` in `format_registry.py` remains the single source of truth.
 
 - [x] **#11 — Options dict has no schema validation** ✅ Fixed
   `models.py` — Added `ConversionOptions` Pydantic model (with `extra="allow"` for extensibility). Validated at the API boundary in `main.py` before passing to converters.
 
-- [ ] **#12 — Files fully read into RAM before processing**
-  `main.py:175` — `content = await file.read()` loads the entire file into memory. A 100MB upload = 100MB RAM per concurrent request. Should stream to disk in chunks using `shutil.copyfileobj` on the raw `file.file` object.
+- [x] **#12 — Files fully read into RAM before processing** ✅ Fixed
+  `main.py` — Both `/api/detect` and `/api/convert` now stream uploads to disk in 64KB chunks via `await file.read(65536)`. Size limit enforced incrementally during streaming; oversized files are rejected early without full RAM load. Job directory is cleaned up if streaming fails mid-way.
 
-- [ ] **#13 — Progress reporting is fake**
-  `main.py:236, 240, 254` — Progress jumps: pending → 10% → 30% → 100% regardless of actual work. Converters report nothing. For a 30-second OCR job, users see 30% for 25 seconds with no feedback. Converters need a progress callback or SSE events.
+- [x] **#13 — Progress reporting is fake** ✅ Fixed
+  Added `ProgressCallback = Callable[[int], Awaitable[None]]` to `converters/base.py`. All 5 converters now accept `on_progress` and call it at meaningful stages. OCR reports per-page progress (20%+70%/n_pages). `_run_conversion` creates the callback that updates the job in the store and persists to Redis. Progress now reflects actual conversion stages rather than jumping 30% → 100%.
 
 - [x] **#14 — No health check endpoint** ✅ Fixed
   Added `GET /health` endpoint in `main.py`. Added `healthcheck` directive in `docker-compose.yml`.

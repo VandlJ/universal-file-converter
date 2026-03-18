@@ -2,14 +2,15 @@ import asyncio
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+if TYPE_CHECKING:
+    from job_store import JobStore
 
-async def cleanup_old_jobs(
-    temp_dir: str, max_age_seconds: int, jobs: dict[str, Any] | None = None
-) -> int:
+
+async def cleanup_old_jobs(temp_dir: str, max_age_seconds: int) -> int:
     """Delete job directories older than max_age_seconds. Returns count deleted."""
     temp_path = Path(temp_dir)
     if not temp_path.exists():
@@ -23,10 +24,8 @@ async def cleanup_old_jobs(
             mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
             if mtime < cutoff:
                 shutil.rmtree(job_dir, ignore_errors=True)
-                if jobs is not None and job_dir.name in jobs:
-                    del jobs[job_dir.name]
                 count += 1
-                logger.info(f"Cleaned up old job: {job_dir.name}")
+                logger.info(f"Cleaned up old job dir: {job_dir.name}")
 
     return count
 
@@ -41,11 +40,16 @@ async def cleanup_on_startup(temp_dir: str) -> None:
 
 
 async def cleanup_scheduler(
-    temp_dir: str, interval: int, max_age: int, jobs: dict[str, Any] | None = None
+    temp_dir: str,
+    interval: int,
+    max_age: int,
+    job_store: "JobStore | None" = None,
 ) -> None:
     """Run cleanup periodically."""
     while True:
         await asyncio.sleep(interval)
-        count = await cleanup_old_jobs(temp_dir, max_age, jobs)
+        count = await cleanup_old_jobs(temp_dir, max_age)
+        if job_store:
+            await job_store.delete_stale(max_age)
         if count > 0:
-            logger.info(f"Cleanup: removed {count} expired jobs")
+            logger.info(f"Cleanup: removed {count} expired job directories")
