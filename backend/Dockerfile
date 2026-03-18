@@ -23,6 +23,10 @@ RUN groupadd -r appgroup \
 
 WORKDIR /app
 
+# Create the temp directory with correct ownership before switching to appuser.
+# Docker copies this structure when initializing a new named volume.
+RUN mkdir -p /tmp/converter && chown appuser:appgroup /tmp/converter
+
 # Copy requirements first — changes to source code won't bust this cache layer.
 COPY --chown=appuser:appgroup requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
