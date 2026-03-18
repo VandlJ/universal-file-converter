@@ -84,6 +84,7 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           envs: GITHUB_TOKEN,GITHUB_ACTOR,GITHUB_REPOSITORY_OWNER
+          command_timeout: 30m
           script: |
             cd ${{ env.DEPLOY_PATH }}
 
