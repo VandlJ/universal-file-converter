@@ -6,6 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  DEPLOY_PATH: /opt/docker/universal-file-converter
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
@@ -30,8 +31,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Lowercase owner name
-        run: |
-          echo "OWNER_LOWER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+        run: echo "OWNER_LOWER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
         env:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
 
@@ -51,12 +51,12 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/universal-file-converter-frontend:latest
 
   # ──────────────────────────────────────────────────────────────────────────
-  # 2. Deploy to Hetzner VPS
+  # 2. Deploy to Hetzner VPS via Traefik
   #
   # Required GitHub secrets:
   #   HETZNER_HOST     — VPS IP or hostname
-  #   HETZNER_USER     — SSH username (e.g. vandl)
-  #   HETZNER_SSH_KEY  — private SSH key (full PEM block)
+  #   HETZNER_USER     — SSH username (vandl)
+  #   HETZNER_SSH_KEY  — private SSH key (full PEM block including header/footer)
   # ──────────────────────────────────────────────────────────────────────────
   deploy:
     name: Deploy to Hetzner
@@ -67,6 +67,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Copy the production compose file to the server deploy directory.
       - name: Copy compose file to server
         uses: appleboy/scp-action@master
         with:
@@ -74,7 +75,7 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           source: "docker-compose.prod.yml"
-          target: "/home/${{ secrets.HETZNER_USER }}/universal-file-converter"
+          target: "${{ env.DEPLOY_PATH }}"
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@master
@@ -84,7 +85,7 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           envs: GITHUB_TOKEN,GITHUB_ACTOR,GITHUB_REPOSITORY_OWNER
           script: |
-            cd /home/${{ secrets.HETZNER_USER }}/universal-file-converter
+            cd ${{ env.DEPLOY_PATH }}
 
             export GITHUB_REPOSITORY_OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
 
@@ -94,10 +95,10 @@ jobs:
             # Pull latest images
             docker compose -f docker-compose.prod.yml pull
 
-            # Restart with zero-downtime (--remove-orphans cleans old containers)
+            # Restart services (--remove-orphans removes containers for deleted services)
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            # Clean up dangling images
+            # Remove dangling images to free disk space
             docker image prune -f
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

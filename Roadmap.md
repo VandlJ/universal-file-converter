@@ -221,37 +221,43 @@ Everything on Hetzner (frontend + backend + Redis) for consistency. Frontend con
 - [x] **#D1 — Production docker-compose** ✅ Done
   `docker-compose.prod.yml` — uses pre-built ghcr.io images, Redis has no exposed port, `restart: unless-stopped`, `HMAC_SECRET` required from `.env`, healthchecks on backend and Redis.
 
-- [x] **#D2 — nginx config for Hetzner host (TLS + proxy)** ✅ Done
-  `deploy/nginx-host.conf` — Let's Encrypt via certbot, `client_max_body_size 110m`, `proxy_pass http://127.0.0.1:3000`, full security headers (X-Frame-Options, HSTS, etc.).
+- [x] **#D2 — Reverse proxy / TLS** ✅ Done (via Traefik — no nginx/certbot on host)
+  All inbound traffic is handled by the existing Traefik v3 container (`web_proxy` network).
+  TLS is managed by Traefik's built-in `myresolver` (Let's Encrypt). The frontend container
+  is attached to `web_proxy` + `converter-net`; backend and Redis are on `converter-net` only.
+  Traefik labels in `docker-compose.prod.yml` route `converter.zephyron.tech` → frontend:8080.
+  `deploy/nginx-host.conf` removed (not needed).
 
-- [x] **#D3 — Frontend deployment** ✅ Done (on Hetzner, not Vercel)
-  `frontend/Dockerfile.prod` — accepts `ARG VITE_API_URL=""` build arg (empty = nginx proxy handles `/api`). Served by nginx, SPA routing via `try_files`. Consistent with backend deployment.
+- [x] **#D3 — Frontend deployment** ✅ Done (Hetzner via Traefik)
+  `frontend/Dockerfile.prod` — `ARG VITE_API_URL=""`, nginx on port 8080 (non-root),
+  SPA `try_files` fallback. Traefik proxies directly to the container; no host port needed.
 
 - [x] **#D4 — GitHub Actions: CI + CD** ✅ Done
-  `.github/workflows/ci.yml` — triggers on push to `dev`/`vandl` and PR to `main`: ruff backend lint, ESLint + `tsc --noEmit` frontend, Docker dry-run builds.
-  `.github/workflows/cd.yml` — triggers on push to `main`: build + push to `ghcr.io`, SCP `docker-compose.prod.yml` to server, SSH `docker compose pull && up -d`.
+  `.github/workflows/ci.yml` — ruff, ESLint + `tsc --noEmit`, Docker dry-run builds.
+  `.github/workflows/cd.yml` — build → push to ghcr.io → SCP compose file to
+  `/opt/docker/universal-file-converter` → SSH `docker compose -f docker-compose.prod.yml up -d`.
 
 - [ ] **#D5 — First-time server setup**
   One-time steps before the first deploy:
   ```bash
-  # On the VPS:
-  mkdir -p ~/universal-file-converter
-  cat > ~/universal-file-converter/.env << 'EOF'
-  HMAC_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-  ALLOWED_ORIGINS=https://converter.yourdomain.com
-  EOF
+  # On the VPS (as vandl):
+  sudo mkdir -p /opt/docker/universal-file-converter
+  sudo chown vandl:vandl /opt/docker/universal-file-converter
 
-  # Install nginx + certbot
-  apt install -y nginx certbot python3-certbot-nginx
-  cp deploy/nginx-host.conf /etc/nginx/sites-available/converter
-  ln -s /etc/nginx/sites-available/converter /etc/nginx/sites-enabled/
-  # Edit domain in the config, then:
-  certbot --nginx -d converter.yourdomain.com
+  # Create the .env file with real secrets:
+  cat > /opt/docker/universal-file-converter/.env << 'EOF'
+  REDIS_PASSWORD=<python3 -c "import secrets; print(secrets.token_urlsafe(32))">
+  HMAC_SECRET=<python3 -c "import secrets; print(secrets.token_hex(32))">
+  ALLOWED_ORIGINS=https://converter.zephyron.tech
+  TESSERACT_LANGUAGES=ces+eng+deu
+  CLEANUP_INTERVAL_SECONDS=3600
+  MAX_FILE_SIZE=104857600
+  EOF
   ```
-  GitHub Actions secrets to add in repo settings:
+  GitHub Actions secrets (Settings → Secrets → Actions):
   - `HETZNER_HOST` — VPS IP or hostname
-  - `HETZNER_USER` — SSH username (e.g. `vandl`)
-  - `HETZNER_SSH_KEY` — private SSH key (full PEM block, including header/footer)
+  - `HETZNER_USER` — `vandl`
+  - `HETZNER_SSH_KEY` — full private key PEM block (including `-----BEGIN/END-----` lines)
 
 - [ ] **#D6 — (Optional) PostgreSQL for durable job metadata**
   Redis with AOF is resilient enough for job state with a 1-hour TTL. A PostgreSQL container would only be needed for permanent history (analytics, audit log). Defer until there's a concrete requirement.
