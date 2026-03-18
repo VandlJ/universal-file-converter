@@ -212,44 +212,46 @@ Hetzner VPS
   └── /tmp/converter volume
 ```
 
-### CORS
+### Deployment decision
 
-When FE is on `*.vercel.app` and BE is on a custom domain, `ALLOWED_ORIGINS` in `docker-compose.yml` must list the exact Vercel URL (or `*` during development). Vercel preview deployments get different URLs each time — either allowlist the production domain only, or use a wildcard pattern validated server-side.
+Everything on Hetzner (frontend + backend + Redis) for consistency. Frontend container nginx proxies `/api` to the backend container internally — no CORS or `VITE_API_URL` needed. Host nginx terminates TLS and proxies to the frontend container on `:3000`.
 
 ### Open tasks
 
-- [ ] **#D1 — Backend: production docker-compose for Hetzner**
-  A separate `docker-compose.prod.yml` (or override file) with:
-  - No exposed Redis port (`6379` internal only)
-  - `HMAC_SECRET` loaded from env / secret file
-  - `ALLOWED_ORIGINS=https://your-app.vercel.app`
-  - Resource limits (`mem_limit`, `cpus`) to protect the VPS
-  - `restart: unless-stopped` on all services
-  - Bind-mount `/tmp/converter` to a directory with defined retention
+- [x] **#D1 — Production docker-compose** ✅ Done
+  `docker-compose.prod.yml` — uses pre-built ghcr.io images, Redis has no exposed port, `restart: unless-stopped`, `HMAC_SECRET` required from `.env`, healthchecks on backend and Redis.
 
-- [ ] **#D2 — nginx config for Hetzner (TLS + proxy)**
-  `nginx.conf` for the VPS host (not the Docker nginx already used for the FE container):
-  - Let's Encrypt via `certbot --nginx` or `acme.sh`
-  - `proxy_pass http://127.0.0.1:8000` for the backend
-  - `client_max_body_size 110m` to match `MAX_FILE_SIZE`
-  - Security headers: `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security`
+- [x] **#D2 — nginx config for Hetzner host (TLS + proxy)** ✅ Done
+  `deploy/nginx-host.conf` — Let's Encrypt via certbot, `client_max_body_size 110m`, `proxy_pass http://127.0.0.1:3000`, full security headers (X-Frame-Options, HSTS, etc.).
 
-- [ ] **#D3 — Vercel: frontend deployment config**
-  - `vercel.json` at repo root: `{ "buildCommand": "cd frontend && npm run build", "outputDirectory": "frontend/dist", "framework": null }` (Vite output, no Next.js preset)
-  - `VITE_API_URL` env var in Vercel dashboard pointing to the Hetzner backend URL
-  - Confirm SPA routing: Vercel rewrites `/*` → `/index.html` (add `rewrites` in `vercel.json`)
+- [x] **#D3 — Frontend deployment** ✅ Done (on Hetzner, not Vercel)
+  `frontend/Dockerfile.prod` — accepts `ARG VITE_API_URL=""` build arg (empty = nginx proxy handles `/api`). Served by nginx, SPA routing via `try_files`. Consistent with backend deployment.
 
-- [ ] **#D4 — GitHub Actions: CI pipeline**
-  On PR / push to `main`:
-  1. `npm ci && npm run build` in `frontend/` — catches TypeScript/build errors early
-  2. `pip install -r requirements.txt && python -m py_compile $(find backend -name "*.py")` — catches import errors
-  3. Optionally: `docker compose build` smoke test
-  On merge to `main`: auto-deploy frontend via Vercel GitHub integration; backend needs a deploy step (SSH + `docker compose pull && docker compose up -d`).
+- [x] **#D4 — GitHub Actions: CI + CD** ✅ Done
+  `.github/workflows/ci.yml` — triggers on push to `dev`/`vandl` and PR to `main`: ruff backend lint, ESLint + `tsc --noEmit` frontend, Docker dry-run builds.
+  `.github/workflows/cd.yml` — triggers on push to `main`: build + push to `ghcr.io`, SCP `docker-compose.prod.yml` to server, SSH `docker compose pull && up -d`.
 
-- [ ] **#D5 — Secrets management**
-  - `HMAC_SECRET`: generate with `python -c "import secrets; print(secrets.token_hex(32))"`, store in Hetzner `.env` file (not in repo), and in GitHub Actions secrets for the CI deploy step.
-  - `REDIS_URL`: internal Docker network — never exposed externally.
-  - Rotate `HMAC_SECRET` invalidates all outstanding signed job IDs (short-lived by design — TTL = cleanup interval, typically 1h). Document this.
+- [ ] **#D5 — First-time server setup**
+  One-time steps before the first deploy:
+  ```bash
+  # On the VPS:
+  mkdir -p ~/universal-file-converter
+  cat > ~/universal-file-converter/.env << 'EOF'
+  HMAC_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+  ALLOWED_ORIGINS=https://converter.yourdomain.com
+  EOF
+
+  # Install nginx + certbot
+  apt install -y nginx certbot python3-certbot-nginx
+  cp deploy/nginx-host.conf /etc/nginx/sites-available/converter
+  ln -s /etc/nginx/sites-available/converter /etc/nginx/sites-enabled/
+  # Edit domain in the config, then:
+  certbot --nginx -d converter.yourdomain.com
+  ```
+  GitHub Actions secrets to add in repo settings:
+  - `HETZNER_HOST` — VPS IP or hostname
+  - `HETZNER_USER` — SSH username (e.g. `vandl`)
+  - `HETZNER_SSH_KEY` — private SSH key (full PEM block, including header/footer)
 
 - [ ] **#D6 — (Optional) PostgreSQL for durable job metadata**
-  Redis with AOF is resilient enough for job state with a 1-hour TTL. A PostgreSQL container would only be needed if you want permanent job history (e.g., analytics, audit log). Defer until there's a concrete requirement.
+  Redis with AOF is resilient enough for job state with a 1-hour TTL. A PostgreSQL container would only be needed for permanent history (analytics, audit log). Defer until there's a concrete requirement.

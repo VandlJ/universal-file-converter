@@ -1,0 +1,56 @@
+# Production compose — uses pre-built images from ghcr.io.
+# Secrets are loaded from a .env file on the server (never committed).
+#
+# Required .env on the server:
+#   HMAC_SECRET=<generate: python -c "import secrets; print(secrets.token_hex(32))">
+#   ALLOWED_ORIGINS=https://converter.yourdomain.com
+
+services:
+  frontend:
+    image: ghcr.io/vandlj/universal-file-converter-frontend:latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/vandlj/universal-file-converter-backend:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - tmp_data:/tmp/converter
+    environment:
+      - MAX_FILE_SIZE=104857600
+      - CLEANUP_INTERVAL_SECONDS=3600
+      - TESSERACT_LANGUAGES=ces+eng+deu
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - REDIS_URL=redis://redis:6379
+      - HMAC_SECRET=${HMAC_SECRET:?HMAC_SECRET must be set in .env}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    # No exposed ports in prod — internal Docker network only
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  tmp_data:
+  redis_data:

@@ -1,0 +1,105 @@
+name: CD Production
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # 1. Build images and push to ghcr.io
+  # ──────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & push Docker images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase owner name
+        run: |
+          echo "OWNER_LOWER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/universal-file-converter-backend:latest
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile.prod
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/universal-file-converter-frontend:latest
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 2. Deploy to Hetzner VPS
+  #
+  # Required GitHub secrets:
+  #   HETZNER_HOST     — VPS IP or hostname
+  #   HETZNER_USER     — SSH username (e.g. vandl)
+  #   HETZNER_SSH_KEY  — private SSH key (full PEM block)
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Hetzner
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy compose file to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "/home/${{ secrets.HETZNER_USER }}/universal-file-converter"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: GITHUB_TOKEN,GITHUB_ACTOR,GITHUB_REPOSITORY_OWNER
+          script: |
+            cd /home/${{ secrets.HETZNER_USER }}/universal-file-converter
+
+            export GITHUB_REPOSITORY_OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+
+            # Authenticate with ghcr.io
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+            # Pull latest images
+            docker compose -f docker-compose.prod.yml pull
+
+            # Restart with zero-downtime (--remove-orphans cleans old containers)
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Clean up dangling images
+            docker image prune -f
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
