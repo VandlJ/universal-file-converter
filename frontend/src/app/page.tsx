@@ -39,16 +39,13 @@ export default function Home() {
       for (const file of idleFiles) {
         const category = file.selectedCategory || file.detection?.category;
         if (category) {
+          const updated = {
+            ...file,
+            selectedFormat: format,
+            selectedCategory: category,
+          };
           setSelectedFormat(file.id, format);
-          // Trigger conversion with a small delay for state to settle
-          setTimeout(() => {
-            const updated = {
-              ...file,
-              selectedFormat: format,
-              selectedCategory: category,
-            };
-            startConversion(updated);
-          }, 50);
+          startConversion(updated);
         }
       }
     },

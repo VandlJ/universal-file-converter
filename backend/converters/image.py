@@ -1,4 +1,4 @@
-import subprocess
+import asyncio
 from pathlib import Path
 
 from loguru import logger
@@ -199,12 +199,19 @@ class ImageConverter(BaseConverter):
         bw.save(str(pbm_path), format="PPM")
 
         try:
-            subprocess.run(
-                ["potrace", str(pbm_path), "-s", "-o", str(output_path)],
-                check=True,
-                capture_output=True,
-                timeout=60,
+            proc = await asyncio.create_subprocess_exec(
+                "potrace", str(pbm_path), "-s", "-o", str(output_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            try:
+                _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=60)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                raise RuntimeError("potrace timed out after 60 seconds")
+            if proc.returncode != 0:
+                raise RuntimeError(f"potrace failed: {stderr_bytes.decode()[:200]}")
         finally:
             if pbm_path.exists():
                 pbm_path.unlink()

@@ -1,4 +1,4 @@
-import subprocess
+import asyncio
 from pathlib import Path
 
 from loguru import logger
@@ -49,17 +49,20 @@ class PresentationConverter(BaseConverter):
         self, input_path: Path, output_dir: Path, stem: str
     ) -> Path:
         """Convert PPTX/ODP to PDF using LibreOffice headless."""
-        result = subprocess.run(
-            [
-                "libreoffice", "--headless", "--convert-to", "pdf",
-                "--outdir", str(output_dir), str(input_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
+        proc = await asyncio.create_subprocess_exec(
+            "libreoffice", "--headless", "--convert-to", "pdf",
+            "--outdir", str(output_dir), str(input_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode != 0:
-            raise RuntimeError(f"LibreOffice conversion failed: {result.stderr[:500]}")
+        try:
+            _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise RuntimeError("LibreOffice timed out after 120 seconds")
+        if proc.returncode != 0:
+            raise RuntimeError(f"LibreOffice conversion failed: {stderr_bytes.decode()[:500]}")
 
         output_path = output_dir / f"{stem}.pdf"
         if not output_path.exists():

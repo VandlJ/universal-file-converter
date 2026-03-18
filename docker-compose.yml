@@ -2,9 +2,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - "3000:80"
     depends_on:
       - backend
 
@@ -19,6 +17,12 @@ services:
       - CLEANUP_INTERVAL_SECONDS=3600
       - TESSERACT_LANGUAGES=ces+eng+deu
       - ALLOWED_ORIGINS=http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   tmp_data:

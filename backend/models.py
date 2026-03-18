@@ -1,4 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+
+class ConversionOptions(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    quality: int = 85
+    dpi: int = 150
+    stripMetadata: bool = False
+    backgroundColor: str = "#ffffff"
+    mdFormatting: str = "interpret"
+    resize: dict | None = None
 
 
 class DetectionResponse(BaseModel):

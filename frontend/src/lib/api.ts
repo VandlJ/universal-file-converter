@@ -5,8 +5,7 @@ import type {
   JobStatus,
 } from "./types";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 export async function fetchFormats(): Promise<FormatRegistry> {
   const res = await fetch(`${API_BASE}/api/formats`);

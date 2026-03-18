@@ -49,6 +49,12 @@
   --text-xs--line-height: 1.25rem;
 }
 
+/* ====== Font Variables (loaded via Google Fonts in index.html) ====== */
+:root {
+  --font-geist-sans: 'Geist', system-ui, sans-serif;
+  --font-geist-mono: 'Geist Mono', ui-monospace, monospace;
+}
+
 /* ====== Light Theme ====== */
 :root {
   --background: #FAFAF9;

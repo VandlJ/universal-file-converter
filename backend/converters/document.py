@@ -1,4 +1,4 @@
-import subprocess
+import asyncio
 from pathlib import Path
 
 import chardet
@@ -44,6 +44,38 @@ PANDOC_OUTPUT_MAP = {
     "odt": "odt",
     "epub": "epub",
 }
+
+
+async def _run_subprocess(cmd: list[str], timeout: int = 120) -> tuple[int, str]:
+    """Run a subprocess asynchronously. Returns (returncode, stderr)."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        raise RuntimeError(f"{cmd[0]} timed out after {timeout} seconds")
+    return proc.returncode, stderr_bytes.decode()
+
+
+async def _run_subprocess_stdout(cmd: list[str], timeout: int = 120) -> tuple[int, str, str]:
+    """Run a subprocess and capture stdout. Returns (returncode, stdout, stderr)."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        raise RuntimeError(f"{cmd[0]} timed out after {timeout} seconds")
+    return proc.returncode, stdout_bytes.decode(), stderr_bytes.decode()
 
 
 class DocumentConverter(BaseConverter):
@@ -99,13 +131,11 @@ class DocumentConverter(BaseConverter):
             "--standalone",
         ]
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120
-        )
+        returncode, stderr = await _run_subprocess(cmd, timeout=120)
 
-        if result.returncode != 0:
-            logger.error(f"Pandoc error: {result.stderr}")
-            raise RuntimeError(f"Pandoc conversion failed: {result.stderr[:500]}")
+        if returncode != 0:
+            logger.error(f"Pandoc error: {stderr}")
+            raise RuntimeError(f"Pandoc conversion failed: {stderr[:500]}")
 
         logger.info(f"Document converted: {input_path.name} → {output_path.name}")
         return output_path
@@ -131,15 +161,13 @@ class DocumentConverter(BaseConverter):
             if md_formatting == "literal" and ext == "md":
                 input_fmt = "plain"
 
-            result = subprocess.run(
+            returncode, stdout, stderr = await _run_subprocess_stdout(
                 ["pandoc", str(input_path), "-f", input_fmt, "-t", "html", "--standalone"],
-                capture_output=True,
-                text=True,
                 timeout=120,
             )
-            if result.returncode != 0:
-                raise RuntimeError(f"Pandoc HTML conversion failed: {result.stderr[:500]}")
-            html_content = result.stdout
+            if returncode != 0:
+                raise RuntimeError(f"Pandoc HTML conversion failed: {stderr[:500]}")
+            html_content = stdout
 
         # Step 2: Generate PDF CSS from options
         css_string = generate_pdf_css(options)

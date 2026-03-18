@@ -1,4 +1,4 @@
-import subprocess
+import asyncio
 from pathlib import Path
 
 import magic
@@ -6,23 +6,28 @@ import magic
 from format_registry import EXTENSION_TO_CATEGORY, FORMAT_MAP
 
 
-def check_pdf_is_scanned(filepath: str) -> bool:
+async def check_pdf_is_scanned(filepath: str) -> bool:
     """Check if a PDF is scanned (image-based) by trying to extract text."""
     try:
-        result = subprocess.run(
-            ["pdftotext", filepath, "-"],
-            capture_output=True,
-            text=True,
-            timeout=10,
+        proc = await asyncio.create_subprocess_exec(
+            "pdftotext", filepath, "-",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        text = result.stdout.strip()
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            return False
+        text = stdout_bytes.decode().strip()
         # If very little text extracted, likely scanned
         return len(text) < 50
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except FileNotFoundError:
         return False
 
 
-def detect_file(filepath: str, filename: str) -> dict:
+async def detect_file(filepath: str, filename: str) -> dict:
     """Detect file type using extension and magic bytes.
 
     Returns dict with category, format, mime_type, is_ambiguous,
@@ -33,7 +38,7 @@ def detect_file(filepath: str, filename: str) -> dict:
 
     # PDF is ambiguous: could be document, presentation source, or OCR target
     if ext == "pdf":
-        is_scanned = check_pdf_is_scanned(filepath)
+        is_scanned = await check_pdf_is_scanned(filepath)
         default_category = "ocr" if is_scanned else "document"
         return {
             "category": default_category,

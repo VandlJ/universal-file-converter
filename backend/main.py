@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import shutil
 import uuid
 from collections import defaultdict
@@ -20,7 +21,7 @@ from converters.image import ImageConverter
 from converters.ocr import OcrConverter
 from converters.presentation import PresentationConverter
 from format_registry import FORMAT_MAP, get_formats
-from models import ConvertResponse, DetectionResponse, JobStatusResponse
+from models import ConversionOptions, ConvertResponse, DetectionResponse, JobStatusResponse
 from utils.cleanup import cleanup_on_startup, cleanup_scheduler
 from utils.detection import detect_file
 from utils.zip_builder import create_zip
@@ -40,13 +41,20 @@ CONVERTERS = {
 }
 
 # ---------------------------------------------------------------------------
-# Rate limiting: max 5 concurrent conversions per IP
+# Rate limiting: per-IP + global concurrent job limits
 # ---------------------------------------------------------------------------
 
 MAX_CONCURRENT_PER_IP = 5
 _ip_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
     lambda: asyncio.Semaphore(MAX_CONCURRENT_PER_IP)
 )
+_global_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_JOBS)
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Strip path components and replace unsafe characters."""
+    name = Path(filename).name
+    return re.sub(r"[^\w\-.]", "_", name) or "upload"
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -64,6 +72,7 @@ async def lifespan(app: FastAPI):
             settings.TEMP_DIR,
             settings.CLEANUP_INTERVAL_SECONDS,
             settings.CLEANUP_INTERVAL_SECONDS,
+            jobs,
         )
     )
     logger.info("Application started")
@@ -93,6 +102,12 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 
+@app.get("/health")
+async def health():
+    """Health check endpoint for load balancers and Docker healthcheck."""
+    return {"status": "ok"}
+
+
 @app.get("/api/formats")
 async def get_format_registry():
     """Return all supported input->output format mappings."""
@@ -107,7 +122,8 @@ async def detect_uploaded_file(file: UploadFile = File(...)):
 
     temp_dir = Path(settings.TEMP_DIR) / "detect"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_path = temp_dir / file.filename
+    safe_name = f"{uuid.uuid4().hex}_{_sanitize_filename(file.filename)}"
+    temp_path = temp_dir / safe_name
 
     try:
         content = await file.read()
@@ -117,7 +133,7 @@ async def detect_uploaded_file(file: UploadFile = File(...)):
                 detail=f"File is {len(content) / 1_048_576:.1f} MB. Maximum allowed is {settings.MAX_FILE_SIZE / 1_048_576:.0f} MB.",
             )
         temp_path.write_bytes(content)
-        result = detect_file(str(temp_path), file.filename)
+        result = await detect_file(str(temp_path), file.filename)
         return DetectionResponse(**result)
     finally:
         if temp_path.exists():
@@ -139,17 +155,20 @@ async def convert_file(
     # Rate limiting
     client_ip = request.client.host if request.client else "unknown"
     sem = _ip_semaphores[client_ip]
-    if sem.locked() and sem._value == 0:
+    if sem.locked():
         raise HTTPException(
             status_code=429,
             detail="Too many concurrent conversions. Please wait for current conversions to finish.",
         )
 
-    # Parse options
+    # Parse and validate options
     try:
-        opts = json.loads(options)
+        opts_raw = json.loads(options)
+        opts = ConversionOptions.model_validate(opts_raw).model_dump()
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid options JSON")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid options: {e}")
 
     # Validate category
     if category not in FORMAT_MAP:
@@ -169,8 +188,8 @@ async def convert_file(
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save uploaded file
-    input_path = input_dir / file.filename
+    # Save uploaded file (sanitize filename to prevent path traversal)
+    input_path = input_dir / _sanitize_filename(file.filename)
     content = await file.read()
     if len(content) > settings.MAX_FILE_SIZE:
         raise HTTPException(
@@ -212,8 +231,9 @@ async def _run_conversion_with_semaphore(
     output_format: str,
     options: dict,
 ) -> None:
-    async with sem:
-        await _run_conversion(job_id, input_path, output_dir, category, output_format, options)
+    async with _global_semaphore:
+        async with sem:
+            await _run_conversion(job_id, input_path, output_dir, category, output_format, options)
 
 
 async def _run_conversion(
@@ -263,7 +283,7 @@ async def _run_conversion(
 
     except Exception as e:
         job["status"] = "failed"
-        job["error"] = f"Conversion failed: {str(e)}"
+        job["error"] = "Conversion failed. Please try again."
         logger.error(f"Job {job_id} failed with error: {e}")
 
 
