@@ -149,3 +149,107 @@ Architecture problems that limit reliability and maintainability.
 
 - [x] **#26 — Polling at fixed 1s interval is inefficient** ✅ Fixed
   `useConversion.ts` — Replaced `setInterval` with adaptive `setTimeout` chain: 200ms for first 2s, 1000ms up to 10s, 3000ms thereafter. Fast conversions get near-instant feedback; long jobs don't spam the server.
+
+---
+
+## UI / UX Polish
+
+Small but visible quality-of-life issues that make the app feel unfinished.
+
+- [ ] **#27 — Missing `cursor: pointer` on interactive elements**
+  Several clickable elements (format badges in `FormatSelector`, quick-convert badges in `FileCard`, category tabs in `BatchPanel`, the drop zone itself) render the default cursor instead of a pointer. Every element the user can click should respond visually. Audit the full component tree and add `cursor-pointer` where missing, `cursor-not-allowed opacity-50` on disabled states.
+
+- [ ] **#28 — No hover/focus ring on format badges**
+  Format badges in `FormatSelector` and the quick-convert row use only a colour change on hover — no border highlight or ring. Add `focus-visible:ring-2 focus-visible:ring-primary/50` and a more pronounced `hover:border-primary hover:shadow-sm` so keyboard and mouse users both see clear affordance.
+
+- [ ] **#29 — Active/selected badge state is too subtle**
+  The selected output format badge uses `bg-primary/15 border-primary text-primary` — on dark mode this is hard to distinguish from unselected. Increase contrast: `bg-primary text-primary-foreground` for the selected state, consistent with how the "Convert" button looks.
+
+- [ ] **#30 — Drop zone has no visual paste hint**
+  Now that Ctrl+V paste is supported, users don't know it's possible. Add a small `Ctrl+V` keyboard hint below the "Browse files" button, similar to how Figma and Linear surface this.
+
+- [ ] **#31 — No drag-over highlight when a file enters from outside the zone**
+  The scale animation triggers correctly, but the border colour doesn't change until `dragenter` fires on the zone itself — if the cursor enters directly onto a child element the highlight is missed. Bind `onDragOver` to the outer container and use a `dragenter`/`dragleave` counter to avoid false negatives.
+
+- [ ] **#32 — FileCard progress bar has no label**
+  The `ProgressBar` shows a numeric percentage as a bar fill but no text readout. Add `{progress}%` inside or beside the bar so users know at a glance whether conversion is at 30% or 90%.
+
+- [ ] **#33 — No empty-state illustration**
+  When the file list is empty the page below the drop zone is a blank void. A light SVG illustration or a short two-line prompt ("Drop your first file above to get started") would make the initial state feel intentional rather than broken.
+
+- [ ] **#34 — Mobile layout breaks at ≤ 480px**
+  The `BatchPanel` format badge grid overflows on small screens and the `FileCard` option collapsible touch target is too small (~24px). Needs a responsive audit: `flex-wrap` badge grids, larger touch targets (`min-h-[44px]`), and full-width buttons on mobile.
+
+- [ ] **#35 — No toast on successful batch download**
+  When "Download all as ZIP" succeeds the user only sees the browser's file-save dialog — there's no success toast. Add `toast.success("ZIP downloaded")` after the blob URL is triggered.
+
+- [ ] **#36 — Conversion history entries have no timestamp**
+  History entries show filename + download link but not when the conversion happened. Add a relative timestamp (`2 min ago`, `yesterday`) using `Intl.RelativeTimeFormat` so users can distinguish sessions.
+
+- [ ] **#37 — Dark mode checkerboard for transparent image previews**
+  The converted image thumbnail uses `bg-muted` as its background. For transparent PNGs this conceals the transparency. Add a CSS checkerboard pattern (two-colour `linear-gradient`) via a `.bg-checkerboard` utility class in `globals.css`.
+
+- [ ] **#38 — URL input has no URL validation**
+  The "Fetch" button is enabled for any non-empty string — including obviously invalid inputs like `"hello"`. Add basic URL validation (`URL` constructor try/catch) client-side before sending the request, with an inline error.
+
+---
+
+## Deployment
+
+Split deployment: static frontend on Vercel's CDN, backend + Redis on a Hetzner VPS.
+
+### Architecture
+
+```
+Browser
+  ↓  HTTPS
+Vercel (frontend static)          ← vite build → dist/
+  ↓  API calls to BACKEND_URL
+Hetzner VPS
+  ├── nginx (TLS termination, reverse proxy → :8000)
+  ├── Docker: backend (FastAPI / uvicorn)
+  ├── Docker: redis (AOF persistence)
+  └── /tmp/converter volume
+```
+
+### CORS
+
+When FE is on `*.vercel.app` and BE is on a custom domain, `ALLOWED_ORIGINS` in `docker-compose.yml` must list the exact Vercel URL (or `*` during development). Vercel preview deployments get different URLs each time — either allowlist the production domain only, or use a wildcard pattern validated server-side.
+
+### Open tasks
+
+- [ ] **#D1 — Backend: production docker-compose for Hetzner**
+  A separate `docker-compose.prod.yml` (or override file) with:
+  - No exposed Redis port (`6379` internal only)
+  - `HMAC_SECRET` loaded from env / secret file
+  - `ALLOWED_ORIGINS=https://your-app.vercel.app`
+  - Resource limits (`mem_limit`, `cpus`) to protect the VPS
+  - `restart: unless-stopped` on all services
+  - Bind-mount `/tmp/converter` to a directory with defined retention
+
+- [ ] **#D2 — nginx config for Hetzner (TLS + proxy)**
+  `nginx.conf` for the VPS host (not the Docker nginx already used for the FE container):
+  - Let's Encrypt via `certbot --nginx` or `acme.sh`
+  - `proxy_pass http://127.0.0.1:8000` for the backend
+  - `client_max_body_size 110m` to match `MAX_FILE_SIZE`
+  - Security headers: `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security`
+
+- [ ] **#D3 — Vercel: frontend deployment config**
+  - `vercel.json` at repo root: `{ "buildCommand": "cd frontend && npm run build", "outputDirectory": "frontend/dist", "framework": null }` (Vite output, no Next.js preset)
+  - `VITE_API_URL` env var in Vercel dashboard pointing to the Hetzner backend URL
+  - Confirm SPA routing: Vercel rewrites `/*` → `/index.html` (add `rewrites` in `vercel.json`)
+
+- [ ] **#D4 — GitHub Actions: CI pipeline**
+  On PR / push to `main`:
+  1. `npm ci && npm run build` in `frontend/` — catches TypeScript/build errors early
+  2. `pip install -r requirements.txt && python -m py_compile $(find backend -name "*.py")` — catches import errors
+  3. Optionally: `docker compose build` smoke test
+  On merge to `main`: auto-deploy frontend via Vercel GitHub integration; backend needs a deploy step (SSH + `docker compose pull && docker compose up -d`).
+
+- [ ] **#D5 — Secrets management**
+  - `HMAC_SECRET`: generate with `python -c "import secrets; print(secrets.token_hex(32))"`, store in Hetzner `.env` file (not in repo), and in GitHub Actions secrets for the CI deploy step.
+  - `REDIS_URL`: internal Docker network — never exposed externally.
+  - Rotate `HMAC_SECRET` invalidates all outstanding signed job IDs (short-lived by design — TTL = cleanup interval, typically 1h). Document this.
+
+- [ ] **#D6 — (Optional) PostgreSQL for durable job metadata**
+  Redis with AOF is resilient enough for job state with a 1-hour TTL. A PostgreSQL container would only be needed if you want permanent job history (e.g., analytics, audit log). Defer until there's a concrete requirement.
