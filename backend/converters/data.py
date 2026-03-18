@@ -7,13 +7,17 @@ import yaml
 import toml
 from loguru import logger
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, ProgressCallback
 from converters.pdf_templates import generate_pdf_css
 
 
 class DataConverter(BaseConverter):
     async def convert(
-        self, input_path: Path, output_format: str, options: dict
+        self,
+        input_path: Path,
+        output_format: str,
+        options: dict,
+        on_progress: ProgressCallback | None = None,
     ) -> Path:
         ext = input_path.suffix.lower().lstrip(".")
         output_dir = input_path.parent.parent / "output"
@@ -21,8 +25,18 @@ class DataConverter(BaseConverter):
         stem = input_path.stem
         output_path = output_dir / f"{stem}.{output_format}"
 
+        if on_progress:
+            await on_progress(20)
+
         df = self._read_input(input_path, ext, options)
+
+        if on_progress:
+            await on_progress(60)
+
         self._write_output(df, output_path, output_format, options)
+
+        if on_progress:
+            await on_progress(95)
 
         logger.info(f"Data converted: {input_path.name} → {output_path.name}")
         return output_path
@@ -213,14 +227,3 @@ class DataConverter(BaseConverter):
             str(output_path), stylesheets=[CSS(string=css_string)]
         )
 
-    def supported_input_formats(self) -> list[str]:
-        return [
-            "csv", "tsv", "xlsx", "xls", "ods", "json", "xml",
-            "yaml", "toml", "parquet", "db", "sqlite",
-        ]
-
-    def supported_output_formats(self) -> list[str]:
-        return [
-            "csv", "tsv", "xlsx", "json", "xml", "yaml", "toml",
-            "parquet", "pdf", "html", "md", "sql",
-        ]

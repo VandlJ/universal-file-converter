@@ -2,7 +2,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, ProgressCallback
 
 try:
     import pytesseract
@@ -19,7 +19,11 @@ except ImportError:
 
 class OcrConverter(BaseConverter):
     async def convert(
-        self, input_path: Path, output_format: str, options: dict
+        self,
+        input_path: Path,
+        output_format: str,
+        options: dict,
+        on_progress: ProgressCallback | None = None,
     ) -> Path:
         if not HAS_TESSERACT:
             raise RuntimeError("pytesseract is not installed")
@@ -33,17 +37,30 @@ class OcrConverter(BaseConverter):
         languages = options.get("ocrLanguages", ["eng"])
         lang_str = "+".join(languages)
 
+        if on_progress:
+            await on_progress(10)
+
         # Get images for OCR
         images = self._get_images(input_path, ext)
+        n_pages = len(images)
+
+        if on_progress:
+            await on_progress(20)
 
         if output_format == "pdf":
-            return self._to_searchable_pdf(images, output_path, lang_str)
+            result = self._to_searchable_pdf(images, output_path, lang_str)
+            if on_progress:
+                await on_progress(95)
+            return result
 
-        # Extract text from all pages
+        # Extract text from all pages, reporting per-page progress
         all_text = []
-        for img in images:
+        for i, img in enumerate(images):
             text = pytesseract.image_to_string(img, lang=lang_str)
             all_text.append(text.strip())
+            if on_progress:
+                pct = 20 + int(70 * (i + 1) / n_pages)
+                await on_progress(pct)
 
         full_text = "\n\n".join(all_text)
 
@@ -51,7 +68,6 @@ class OcrConverter(BaseConverter):
             output_path.write_text(full_text, encoding="utf-8")
 
         elif output_format == "md":
-            # Basic structure detection: lines that are short and uppercase → headers
             lines = []
             for line in full_text.split("\n"):
                 stripped = line.strip()
@@ -78,6 +94,9 @@ class OcrConverter(BaseConverter):
         else:
             raise ValueError(f"Unsupported OCR output format: {output_format}")
 
+        if on_progress:
+            await on_progress(95)
+
         logger.info(f"OCR completed: {input_path.name} → {output_path.name}")
         return output_path
 
@@ -101,8 +120,6 @@ class OcrConverter(BaseConverter):
         if len(pdf_pages) == 1:
             output_path.write_bytes(pdf_pages[0])
         else:
-            # Concatenate PDF pages — simple approach: write first, rest need merging
-            # For simplicity, just write the first page if no PDF merger available
             try:
                 from pypdf import PdfMerger
                 merger = PdfMerger()
@@ -115,7 +132,6 @@ class OcrConverter(BaseConverter):
                 for f in output_path.parent.glob("_ocr_page_*.pdf"):
                     f.unlink()
             except ImportError:
-                # Fallback: just use first page
                 output_path.write_bytes(pdf_pages[0])
 
         logger.info(f"Searchable PDF created: {output_path.name}")
@@ -132,12 +148,6 @@ class OcrConverter(BaseConverter):
                 doc.add_paragraph(stripped)
 
         doc.save(str(output_path))
-
-    def supported_input_formats(self) -> list[str]:
-        return ["pdf", "jpg", "jpeg", "png", "tiff", "bmp"]
-
-    def supported_output_formats(self) -> list[str]:
-        return ["txt", "md", "docx", "pdf", "html"]
 
 
 def _escape_html(text: str) -> str:

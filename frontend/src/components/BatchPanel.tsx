@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Download, Play } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getFormatLabel, getCategoryLabel } from "@/lib/formats";
@@ -12,12 +13,14 @@ interface BatchPanelProps {
   files: UploadedFile[];
   formatRegistry: FormatRegistry | null;
   onConvertAll: (format: string) => void;
+  onDownloadAll?: () => void;
 }
 
 export function BatchPanel({
   files,
   formatRegistry,
   onConvertAll,
+  onDownloadAll,
 }: BatchPanelProps) {
   const [batchFormat, setBatchFormat] = useState<string | undefined>();
 
@@ -75,12 +78,15 @@ export function BatchPanel({
               <Badge
                 key={format}
                 variant={batchFormat === format ? "default" : "outline"}
-                className={`cursor-pointer px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`cursor-pointer px-3 py-1.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
                   batchFormat === format
-                    ? "bg-primary/15 border-primary text-primary"
-                    : "hover:border-primary/40 hover:text-foreground"
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/25"
+                    : "hover:border-primary/60 hover:bg-accent/60 hover:shadow-sm"
                 }`}
+                tabIndex={0}
+                role="button"
                 onClick={() => setBatchFormat(format)}
+                onKeyDown={(e) => e.key === "Enter" && setBatchFormat(format)}
               >
                 {getFormatLabel(format)}
               </Badge>
@@ -89,7 +95,7 @@ export function BatchPanel({
         </div>
 
         <Button
-          className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+          className="w-full min-h-[44px] bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed"
           disabled={!batchFormat}
           onClick={() => batchFormat && onConvertAll(batchFormat)}
         >
@@ -97,10 +103,15 @@ export function BatchPanel({
           Convert all ({batchInfo.count} files)
         </Button>
 
-        {allDone && (
-          <p className="text-xs text-muted-foreground text-center">
-            Download each file individually from its card.
-          </p>
+        {allDone && onDownloadAll && (
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={onDownloadAll}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            Download all as ZIP
+          </Button>
         )}
       </div>
     </div>

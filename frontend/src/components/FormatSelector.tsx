@@ -38,6 +38,14 @@ export function FormatSelector({
   const category = selectedCategory || "";
   const { popular, other } = getPopularAndOther(outputs, category);
 
+  // #28/#29: shared badge class helpers
+  const selectedCls =
+    "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/25";
+  const unselectedCls =
+    "hover:border-primary/60 hover:bg-accent/60 hover:shadow-sm";
+  const baseCls =
+    "cursor-pointer px-3 py-1.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
+
   return (
     <div className="space-y-3">
       {isAmbiguous && availableCategories && onCategoryChange && (
@@ -50,12 +58,11 @@ export function FormatSelector({
               <Badge
                 key={cat}
                 variant={selectedCategory === cat ? "default" : "outline"}
-                className={`cursor-pointer px-3 py-1.5 text-xs font-medium transition-colors ${
-                  selectedCategory === cat
-                    ? "bg-primary/15 border-primary text-primary"
-                    : "hover:border-primary/40 hover:text-foreground"
-                }`}
+                className={`${baseCls} ${selectedCategory === cat ? selectedCls : unselectedCls}`}
+                tabIndex={0}
+                role="button"
                 onClick={() => onCategoryChange(cat)}
+                onKeyDown={(e) => e.key === "Enter" && onCategoryChange(cat)}
               >
                 {getCategoryLabel(cat)}
               </Badge>
@@ -73,12 +80,11 @@ export function FormatSelector({
             <Badge
               key={format}
               variant={selectedFormat === format ? "default" : "outline"}
-              className={`cursor-pointer px-3 py-1.5 text-xs font-medium transition-all ${
-                selectedFormat === format
-                  ? "bg-primary/15 border-primary text-primary shadow-sm shadow-primary/20"
-                  : "hover:border-primary/40 hover:text-foreground"
-              }`}
+              className={`${baseCls} ${selectedFormat === format ? selectedCls : unselectedCls}`}
+              tabIndex={0}
+              role="button"
               onClick={() => onSelect(format)}
+              onKeyDown={(e) => e.key === "Enter" && onSelect(format)}
             >
               {getFormatLabel(format)}
             </Badge>
@@ -88,8 +94,11 @@ export function FormatSelector({
             <>
               <Badge
                 variant="outline"
-                className="cursor-pointer border-dashed px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                className={`${baseCls} border-dashed text-muted-foreground hover:border-primary/60 hover:text-foreground hover:shadow-sm`}
+                tabIndex={0}
+                role="button"
                 onClick={() => setDialogOpen(true)}
+                onKeyDown={(e) => e.key === "Enter" && setDialogOpen(true)}
               >
                 +{other.length} more
               </Badge>

@@ -1,0 +1,98 @@
+# Production compose — pulls pre-built images from ghcr.io.
+# Routed via Traefik reverse proxy on the external web_proxy network.
+#
+# Required .env on the server (/opt/docker/universal-file-converter/.env):
+#   REDIS_PASSWORD=<python3 -c "import secrets; print(secrets.token_urlsafe(32))">
+#   HMAC_SECRET=<python3 -c "import secrets; print(secrets.token_hex(32))">
+#   ALLOWED_ORIGINS=https://converter.zephyron.tech
+#   TESSERACT_LANGUAGES=ces+eng+deu
+#   CLEANUP_INTERVAL_SECONDS=3600
+#   MAX_FILE_SIZE=104857600
+
+services:
+
+  frontend:
+    image: ghcr.io/vandlj/universal-file-converter-frontend:latest
+    # No host ports — Traefik handles all inbound traffic.
+    networks:
+      - web_proxy
+      - converter-net
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web_proxy"
+      - "traefik.http.routers.file-converter.rule=Host(`converter.zephyron.tech`)"
+      - "traefik.http.routers.file-converter.entrypoints=websecure"
+      - "traefik.http.routers.file-converter.tls.certresolver=myresolver"
+      # Internal port nginx listens on (non-root, see nginx.conf).
+      - "traefik.http.services.file-converter.loadbalancer.server.port=8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+
+  backend:
+    image: ghcr.io/vandlj/universal-file-converter-backend:latest
+    # Not exposed externally — reachable only by the frontend via converter-net.
+    networks:
+      - converter-net
+    volumes:
+      - tmp_data:/tmp/converter
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 1536M
+
+  redis:
+    image: redis:7-alpine
+    # No ports exposed — internal to converter-net only.
+    networks:
+      - converter-net
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+networks:
+  # Traefik's external network — must already exist on the host.
+  web_proxy:
+    external: true
+  # Isolated internal network for backend ↔ redis communication.
+  converter-net:
+    driver: bridge
+
+volumes:
+  tmp_data:
+  redis_data:

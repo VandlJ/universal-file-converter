@@ -6,9 +6,7 @@ import { detectFile } from "@/lib/api";
 import type { ConversionOptions, UploadedFile } from "@/lib/types";
 import { generateId } from "@/lib/utils";
 
-const MAX_FILE_SIZE = Number(
-  process.env.NEXT_PUBLIC_MAX_FILE_SIZE || 104857600
-);
+const MAX_FILE_SIZE = Number(import.meta.env.VITE_MAX_FILE_SIZE ?? 104857600);
 
 export function useFileUpload() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -44,35 +42,37 @@ export function useFileUpload() {
 
     setFiles((prev) => [...prev, ...entries]);
 
-    // Detect each file in parallel
-    for (const entry of entries) {
-      try {
-        const detection = await detectFile(entry.file);
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === entry.id
-              ? {
-                  ...f,
-                  detection,
-                  selectedCategory: detection.category || undefined,
-                  status: "idle" as const,
-                }
-              : f
-          )
-        );
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Detection failed";
-        toast.error(`Failed to detect ${entry.name}: ${message}`);
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === entry.id
-              ? { ...f, status: "error" as const, error: message }
-              : f
-          )
-        );
-      }
-    }
+    // Detect all files in parallel
+    await Promise.allSettled(
+      entries.map(async (entry) => {
+        try {
+          const detection = await detectFile(entry.file);
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === entry.id
+                ? {
+                    ...f,
+                    detection,
+                    selectedCategory: detection.category || undefined,
+                    status: "idle" as const,
+                  }
+                : f
+            )
+          );
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Detection failed";
+          toast.error(`Failed to detect ${entry.name}: ${message}`);
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === entry.id
+                ? { ...f, status: "error" as const, error: message }
+                : f
+            )
+          );
+        }
+      })
+    );
   }, []);
 
   const removeFile = useCallback((id: string) => {

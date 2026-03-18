@@ -6,6 +6,9 @@ export const CATEGORY_COLORS: Record<string, string> = {
   presentation:
     "bg-purple-500/10 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300",
   ocr: "bg-rose-500/10 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+  audio: "bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300",
+  video: "bg-violet-500/10 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  font: "bg-orange-500/10 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
 };
 
 export const FORMAT_LABELS: Record<string, string> = {
@@ -56,6 +59,31 @@ export const FORMAT_LABELS: Record<string, string> = {
   sql: "SQL",
   pptx: "PowerPoint",
   odp: "ODP",
+  // audio
+  mp3: "MP3",
+  wav: "WAV",
+  ogg: "OGG",
+  flac: "FLAC",
+  aac: "AAC",
+  m4a: "M4A",
+  wma: "WMA",
+  opus: "Opus",
+  aiff: "AIFF",
+  // video
+  mp4: "MP4",
+  mkv: "MKV",
+  avi: "AVI",
+  mov: "MOV",
+  webm: "WebM",
+  flv: "FLV",
+  wmv: "WMV",
+  m4v: "M4V",
+  "3gp": "3GP",
+  // fonts
+  ttf: "TTF",
+  otf: "OTF",
+  woff: "WOFF",
+  woff2: "WOFF2",
 };
 
 export function getFormatLabel(format: string): string {
@@ -69,6 +97,9 @@ export function getCategoryLabel(category: string): string {
     data: "Data",
     presentation: "Presentation",
     ocr: "OCR",
+    audio: "Audio",
+    video: "Video",
+    font: "Font",
   };
   return labels[category] || category;
 }

@@ -8,14 +8,14 @@ import type { UploadedFile } from "@/lib/types";
 export function useConversion(
   updateFile: (id: string, updates: Partial<UploadedFile>) => void
 ) {
-  const pollingRefs = useRef<Map<string, ReturnType<typeof setInterval>>>(
+  const pollingRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
 
   const stopPolling = useCallback((fileId: string) => {
-    const interval = pollingRefs.current.get(fileId);
-    if (interval) {
-      clearInterval(interval);
+    const timeout = pollingRefs.current.get(fileId);
+    if (timeout) {
+      clearTimeout(timeout);
       pollingRefs.current.delete(fileId);
     }
   }, []);
@@ -43,8 +43,9 @@ export function useConversion(
 
         updateFile(file.id, { jobId: job_id, progress: 5 });
 
-        // Start polling
-        const interval = setInterval(async () => {
+        // Adaptive polling: 200ms for first 2s, 1000ms up to 10s, 3000ms after
+        const startTime = Date.now();
+        const poll = async () => {
           try {
             const status = await getJobStatus(job_id);
             updateFile(file.id, { progress: status.progress });
@@ -57,6 +58,7 @@ export function useConversion(
                 downloadUrl: getDownloadUrl(job_id),
               });
               toast.success(`${file.name} converted successfully!`);
+              return;
             } else if (status.status === "failed") {
               stopPolling(file.id);
               updateFile(file.id, {
@@ -66,6 +68,7 @@ export function useConversion(
               toast.error(
                 status.error || `Failed to convert ${file.name}`
               );
+              return;
             }
           } catch {
             stopPolling(file.id);
@@ -73,10 +76,17 @@ export function useConversion(
               status: "error",
               error: "Connection lost. Your files are safe — click retry.",
             });
+            return;
           }
-        }, 1000);
 
-        pollingRefs.current.set(file.id, interval);
+          const elapsed = Date.now() - startTime;
+          const delay = elapsed < 2000 ? 200 : elapsed < 10000 ? 1000 : 3000;
+          const timeout = setTimeout(poll, delay);
+          pollingRefs.current.set(file.id, timeout);
+        };
+
+        const timeout = setTimeout(poll, 200);
+        pollingRefs.current.set(file.id, timeout);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Conversion request failed";

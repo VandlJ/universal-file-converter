@@ -9,6 +9,9 @@ import {
   Table,
   Presentation,
   ScanText,
+  Music,
+  Video,
+  Type,
   Loader2,
   AlertCircle,
   RefreshCw,
@@ -45,6 +48,7 @@ interface FileCardProps {
   onOptionsChange: (options: ConversionOptionsType) => void;
   onConvert: () => void;
   onRetry: () => void;
+  onConvertTo?: (format: string) => void;
 }
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -53,7 +57,14 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   data: Table,
   presentation: Presentation,
   ocr: ScanText,
+  audio: Music,
+  video: Video,
+  font: Type,
 };
+
+const IMAGE_PREVIEW_FORMATS = new Set([
+  "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "tiff", "ico",
+]);
 
 export function FileCard({
   file,
@@ -64,6 +75,7 @@ export function FileCard({
   onOptionsChange,
   onConvert,
   onRetry,
+  onConvertTo,
 }: FileCardProps) {
   const category = file.selectedCategory || file.detection?.category;
   const CategoryIcon = category ? CATEGORY_ICONS[category] || FileText : FileText;
@@ -210,7 +222,7 @@ export function FileCard({
 
                 <Button
                   onClick={onConvert}
-                  className="h-10 w-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25"
+                  className="h-11 w-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25"
                 >
                   Convert to {getFormatLabel(file.selectedFormat)}
                 </Button>
@@ -230,12 +242,48 @@ export function FileCard({
         )}
 
         {file.status === "done" && file.downloadUrl && (
-          <div className="mt-3">
+          <div className="mt-3 space-y-3">
+            {/* #21 — Image preview (#37 checkerboard for transparency) */}
+            {IMAGE_PREVIEW_FORMATS.has(file.selectedFormat || "") && (
+              <div className="overflow-hidden rounded-lg border border-border">
+                <img
+                  src={file.downloadUrl}
+                  alt="Preview"
+                  className="max-h-48 w-full object-contain bg-checkerboard"
+                />
+              </div>
+            )}
+
             <DownloadPanel
               downloadUrl={file.downloadUrl}
               filename={`${file.name.replace(/\.[^.]+$/, "")}.${file.selectedFormat}`}
               onConvertAgain={onRetry}
             />
+
+            {/* #22 — Quick-convert to other formats */}
+            {onConvertTo && file.detection && file.detection.available_outputs.length > 1 && (
+              <div>
+                <p className="mb-1.5 text-xs text-muted-foreground">Also convert to:</p>
+                <div className="flex flex-wrap gap-1">
+                  {file.detection.available_outputs
+                    .filter((f) => f !== file.selectedFormat)
+                    .slice(0, 6)
+                    .map((format) => (
+                      <Badge
+                        key={format}
+                        variant="outline"
+                        className="cursor-pointer px-2 py-1 text-xs transition-all hover:border-primary/60 hover:bg-accent/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                        tabIndex={0}
+                        role="button"
+                        onClick={() => onConvertTo(format)}
+                        onKeyDown={(e) => e.key === "Enter" && onConvertTo(format)}
+                      >
+                        {getFormatLabel(format)}
+                      </Badge>
+                    ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
