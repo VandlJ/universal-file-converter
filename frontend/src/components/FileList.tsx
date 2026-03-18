@@ -18,6 +18,7 @@ interface FileListProps {
   onOptionsChange: (id: string, options: ConversionOptions) => void;
   onConvert: (file: UploadedFile) => void;
   onBatchConvert?: (format: string) => void;
+  onDownloadAll?: () => void;
 }
 
 export function FileList({
@@ -30,6 +31,7 @@ export function FileList({
   onOptionsChange,
   onConvert,
   onBatchConvert,
+  onDownloadAll,
 }: FileListProps) {
   if (files.length === 0) return null;
 
@@ -53,6 +55,7 @@ export function FileList({
           files={files}
           formatRegistry={formatRegistry}
           onConvertAll={onBatchConvert}
+          onDownloadAll={onDownloadAll}
         />
       )}
 
@@ -69,6 +72,10 @@ export function FileList({
               onOptionsChange={(options) => onOptionsChange(file.id, options)}
               onConvert={() => onConvert(file)}
               onRetry={() => onConvert(file)}
+              onConvertTo={(format) => {
+                onSelectFormat(file.id, format);
+                onConvert({ ...file, selectedFormat: format });
+              }}
             />
           ))}
         </AnimatePresence>

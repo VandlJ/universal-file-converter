@@ -36,3 +36,7 @@ class JobStatusResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     error_code: str | None = None
+
+
+class BatchDownloadRequest(BaseModel):
+    job_ids: list[str]

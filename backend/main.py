@@ -1,28 +1,35 @@
 import asyncio
+import hashlib
+import hmac as _hmac
+import io
 import json
 import re
 import shutil
 import uuid
+import zipfile
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from loguru import logger
 
 from config import settings
 from converters.data import DataConverter
 from converters.document import DocumentConverter
+from converters.font import FontConverter
 from converters.image import ImageConverter
+from converters.media import MediaConverter
 from converters.ocr import OcrConverter
 from converters.presentation import PresentationConverter
 from format_registry import FORMAT_MAP, get_formats
 from job_store import JobStore
-from models import ConversionOptions, ConvertResponse, DetectionResponse, JobStatusResponse
+from models import BatchDownloadRequest, ConversionOptions, ConvertResponse, DetectionResponse, JobStatusResponse
 from utils.cleanup import cleanup_on_startup, cleanup_scheduler
 from utils.detection import detect_file
 from utils.zip_builder import create_zip
@@ -42,6 +49,9 @@ CONVERTERS = {
     "data": DataConverter(),
     "presentation": PresentationConverter(),
     "ocr": OcrConverter(),
+    "audio": MediaConverter(),
+    "video": MediaConverter(),
+    "font": FontConverter(),
 }
 
 # ---------------------------------------------------------------------------
@@ -59,6 +69,32 @@ def _sanitize_filename(filename: str) -> str:
     """Strip path components and replace unsafe characters."""
     name = Path(filename).name
     return re.sub(r"[^\w\-.]", "_", name) or "upload"
+
+
+# ---------------------------------------------------------------------------
+# HMAC job-ID signing (#16)
+# ---------------------------------------------------------------------------
+
+def _sign_job_id(job_id: str) -> str:
+    """Return a tamper-proof token: '{job_id}.{hmac16}'."""
+    mac = _hmac.new(
+        settings.HMAC_SECRET.encode(), job_id.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+    return f"{job_id}.{mac}"
+
+
+def _verify_job_id(signed: str) -> str:
+    """Verify the HMAC suffix and return the raw job_id."""
+    parts = signed.rsplit(".", 1)
+    if len(parts) != 2:
+        raise HTTPException(status_code=403, detail="Invalid job token")
+    job_id, provided_mac = parts
+    expected = _hmac.new(
+        settings.HMAC_SECRET.encode(), job_id.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+    if not _hmac.compare_digest(provided_mac, expected):
+        raise HTTPException(status_code=403, detail="Invalid job token")
+    return job_id
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +277,7 @@ async def convert_file(
         )
     )
 
-    return ConvertResponse(job_id=job_id)
+    return ConvertResponse(job_id=_sign_job_id(job_id))
 
 
 async def _run_conversion_with_semaphore(
@@ -322,6 +358,7 @@ async def _run_conversion(
 @app.get("/api/status/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(job_id: str):
     """Poll conversion progress."""
+    job_id = _verify_job_id(job_id)
     job = await job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -338,6 +375,7 @@ async def get_job_status(job_id: str):
 @app.get("/api/download/{job_id}")
 async def download_file(job_id: str):
     """Download converted file."""
+    job_id = _verify_job_id(job_id)
     job = await job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -364,6 +402,7 @@ async def download_file(job_id: str):
 @app.get("/api/download/{job_id}/zip")
 async def download_zip(job_id: str):
     """Download all converted files as ZIP."""
+    job_id = _verify_job_id(job_id)
     job = await job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -388,6 +427,7 @@ async def download_zip(job_id: str):
 @app.delete("/api/job/{job_id}")
 async def delete_job(job_id: str):
     """Clean up job files."""
+    job_id = _verify_job_id(job_id)
     job = await job_store.delete(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -397,3 +437,61 @@ async def delete_job(job_id: str):
         shutil.rmtree(job_dir, ignore_errors=True)
 
     return {"detail": "Job deleted"}
+
+
+@app.post("/api/fetch-url")
+async def fetch_url_endpoint(url: str = Form(...)):
+    """Fetch a remote file and return it as a binary response."""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {e}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=400, detail=f"URL returned HTTP {e.response.status_code}"
+        )
+
+    # Respect size limit
+    if len(r.content) > settings.MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Remote file exceeds maximum size of {settings.MAX_FILE_SIZE // 1_048_576} MB.",
+        )
+
+    filename = _sanitize_filename(url.split("/")[-1].split("?")[0] or "downloaded_file")
+    content_type = r.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+
+    return Response(
+        content=r.content,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/batch-download")
+async def batch_download(body: BatchDownloadRequest):
+    """Create a ZIP archive of multiple completed jobs."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for signed_id in body.job_ids:
+            try:
+                job_id = _verify_job_id(signed_id)
+            except HTTPException:
+                continue
+            job = await job_store.get(job_id)
+            if not job or job.get("status") != "completed":
+                continue
+            output_dir = Path(settings.TEMP_DIR) / job_id / "output"
+            for fname in job.get("output_files", []):
+                fpath = output_dir / fname
+                if fpath.exists():
+                    zf.write(str(fpath), fname)
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="converted_files.zip"'},
+    )

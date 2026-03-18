@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Upload } from "lucide-react";
+import { Link, Loader2, Upload } from "lucide-react";
+import { fetchFileFromUrl } from "@/lib/api";
 
 interface DropZoneProps {
   onFilesAdded: (files: FileList | File[]) => void;
@@ -11,7 +12,22 @@ interface DropZoneProps {
 
 export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [tab, setTab] = useState<"drop" | "url">("drop");
+  const [urlValue, setUrlValue] = useState("");
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // #19 — Clipboard paste
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.clipboardData?.files?.length) {
+        onFilesAdded(e.clipboardData.files);
+      }
+    };
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [onFilesAdded]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -35,8 +51,8 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
   );
 
   const handleClick = useCallback(() => {
-    inputRef.current?.click();
-  }, []);
+    if (tab === "drop") inputRef.current?.click();
+  }, [tab]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -48,68 +64,154 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
     [onFilesAdded]
   );
 
+  // #20 — URL fetch
+  const handleFetchUrl = useCallback(async () => {
+    const url = urlValue.trim();
+    if (!url) return;
+    setUrlLoading(true);
+    setUrlError(null);
+    try {
+      const file = await fetchFileFromUrl(url);
+      onFilesAdded([file]);
+      setUrlValue("");
+      setTab("drop");
+    } catch (err) {
+      setUrlError(err instanceof Error ? err.message : "Failed to fetch URL");
+    } finally {
+      setUrlLoading(false);
+    }
+  }, [urlValue, onFilesAdded]);
+
   return (
-    <motion.div
-      onClick={handleClick}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      animate={isDragOver ? { scale: 1.02 } : { scale: 1 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className={`relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed bg-card transition-all duration-200 ${
-        compact ? "min-h-[120px] p-6" : "min-h-[200px] p-12"
-      } ${
-        isDragOver
-          ? "border-primary bg-primary/5 shadow-glow"
-          : "border-border hover:border-primary/40 hover:shadow-glow"
-      }`}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={handleChange}
-      />
-
-      <motion.div
-        animate={{ y: [0, -6, 0] }}
-        transition={{ duration: 3, ease: "easeInOut", repeat: Infinity }}
-        className={`rounded-xl p-3 transition-all duration-200 ${
-          isDragOver ? "bg-primary/15" : "bg-muted"
-        }`}
-      >
-        <Upload
-          className={`transition-all duration-200 ${
-            compact ? "h-5 w-5" : "h-8 w-8"
-          } ${isDragOver ? "text-primary scale-110" : "text-muted-foreground"}`}
-        />
-      </motion.div>
-
-      <div className="text-center">
-        <p className="text-sm font-medium">
-          {isDragOver ? "Release to upload" : "Drop files here or click to browse"}
-        </p>
-        {!compact && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Images, documents, spreadsheets, and more
-          </p>
-        )}
-      </div>
-
-      {!compact && (
+    <div className="space-y-2">
+      {/* Tab switcher */}
+      <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
         <button
           type="button"
-          className="rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-          onClick={(e) => {
-            e.stopPropagation();
-            inputRef.current?.click();
-          }}
+          onClick={() => setTab("drop")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            tab === "drop"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
         >
-          Browse files
+          <Upload className="h-3.5 w-3.5" />
+          Drop / Browse
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("url")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            tab === "url"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Link className="h-3.5 w-3.5" />
+          From URL
+        </button>
+      </div>
+
+      {tab === "drop" ? (
+        <motion.div
+          onClick={handleClick}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          animate={isDragOver ? { scale: 1.02 } : { scale: 1 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className={`relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed bg-card transition-all duration-200 ${
+            compact ? "min-h-[120px] p-6" : "min-h-[200px] p-12"
+          } ${
+            isDragOver
+              ? "border-primary bg-primary/5 shadow-glow"
+              : "border-border hover:border-primary/40 hover:shadow-glow"
+          }`}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleChange}
+          />
+
+          <motion.div
+            animate={{ y: [0, -6, 0] }}
+            transition={{ duration: 3, ease: "easeInOut", repeat: Infinity }}
+            className={`rounded-xl p-3 transition-all duration-200 ${
+              isDragOver ? "bg-primary/15" : "bg-muted"
+            }`}
+          >
+            <Upload
+              className={`transition-all duration-200 ${
+                compact ? "h-5 w-5" : "h-8 w-8"
+              } ${isDragOver ? "text-primary scale-110" : "text-muted-foreground"}`}
+            />
+          </motion.div>
+
+          <div className="text-center">
+            <p className="text-sm font-medium">
+              {isDragOver ? "Release to upload" : "Drop files here or click to browse"}
+            </p>
+            {!compact && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Images, documents, spreadsheets, audio, video, fonts, and more
+              </p>
+            )}
+          </div>
+
+          {!compact && (
+            <button
+              type="button"
+              className="rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                inputRef.current?.click();
+              }}
+            >
+              Browse files
+            </button>
+          )}
+        </motion.div>
+      ) : (
+        <div
+          className={`flex flex-col gap-3 rounded-xl border-2 border-dashed border-border bg-card p-6 ${
+            compact ? "min-h-[120px]" : "min-h-[200px]"
+          } justify-center`}
+        >
+          <p className="text-sm font-medium text-center">Paste a file URL</p>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={urlValue}
+              onChange={(e) => {
+                setUrlValue(e.target.value);
+                setUrlError(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleFetchUrl()}
+              placeholder="https://example.com/file.pdf"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+            <button
+              type="button"
+              onClick={handleFetchUrl}
+              disabled={urlLoading || !urlValue.trim()}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {urlLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Fetch"
+              )}
+            </button>
+          </div>
+          {urlError && (
+            <p className="text-xs text-destructive text-center">{urlError}</p>
+          )}
+        </div>
       )}
-    </motion.div>
+    </div>
   );
 }

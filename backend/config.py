@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     TEMP_DIR: str = "/tmp/converter"
     REDIS_URL: str | None = None  # e.g. redis://redis:6379
+    HMAC_SECRET: str = "change-me-in-production"
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod

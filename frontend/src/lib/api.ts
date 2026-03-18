@@ -80,3 +80,32 @@ export function getZipDownloadUrl(jobId: string): string {
 export async function deleteJob(jobId: string): Promise<void> {
   await fetch(`${API_BASE}/api/job/${jobId}`, { method: "DELETE" });
 }
+
+export async function fetchFileFromUrl(url: string): Promise<File> {
+  const formData = new FormData();
+  formData.append("url", url);
+  const res = await fetch(`${API_BASE}/api/fetch-url`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to fetch URL");
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename =
+    match?.[1] || url.split("/").pop()?.split("?")[0] || "downloaded_file";
+  return new File([blob], filename, { type: blob.type });
+}
+
+export async function batchDownloadBlob(jobIds: string[]): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/batch-download`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_ids: jobIds }),
+  });
+  if (!res.ok) throw new Error("Batch download failed");
+  return res.blob();
+}

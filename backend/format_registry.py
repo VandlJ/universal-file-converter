@@ -1,4 +1,19 @@
 FORMAT_MAP: dict = {
+    "audio": {
+        "inputs": ["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "aiff"],
+        "outputs": ["mp3", "wav", "ogg", "flac", "aac", "m4a", "opus"],
+        "options": ["quality"],
+    },
+    "video": {
+        "inputs": ["mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v", "3gp"],
+        "outputs": ["mp4", "mkv", "webm", "avi", "mov", "gif", "mp3"],
+        "options": ["quality"],
+    },
+    "font": {
+        "inputs": ["ttf", "otf", "woff", "woff2"],
+        "outputs": ["ttf", "otf", "woff", "woff2"],
+        "options": [],
+    },
     "image": {
         "inputs": [
             "jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp",
@@ -68,6 +83,14 @@ EXTENSION_TO_CATEGORY: dict[str, str | None] = {
     "parquet": "data", "db": "data", "sqlite": "data",
     # presentations
     "pptx": "presentation", "odp": "presentation",
+    # audio
+    "mp3": "audio", "wav": "audio", "ogg": "audio", "flac": "audio",
+    "aac": "audio", "m4a": "audio", "wma": "audio", "opus": "audio", "aiff": "audio",
+    # video
+    "mp4": "video", "mkv": "video", "avi": "video", "mov": "video",
+    "webm": "video", "flv": "video", "wmv": "video", "m4v": "video", "3gp": "video",
+    # fonts
+    "ttf": "font", "otf": "font", "woff": "font", "woff2": "font",
     # ambiguous
     "pdf": None,
 }

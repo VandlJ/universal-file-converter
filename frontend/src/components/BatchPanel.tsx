@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Download, Play } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getFormatLabel, getCategoryLabel } from "@/lib/formats";
@@ -12,12 +13,14 @@ interface BatchPanelProps {
   files: UploadedFile[];
   formatRegistry: FormatRegistry | null;
   onConvertAll: (format: string) => void;
+  onDownloadAll?: () => void;
 }
 
 export function BatchPanel({
   files,
   formatRegistry,
   onConvertAll,
+  onDownloadAll,
 }: BatchPanelProps) {
   const [batchFormat, setBatchFormat] = useState<string | undefined>();
 
@@ -97,10 +100,15 @@ export function BatchPanel({
           Convert all ({batchInfo.count} files)
         </Button>
 
-        {allDone && (
-          <p className="text-xs text-muted-foreground text-center">
-            Download each file individually from its card.
-          </p>
+        {allDone && onDownloadAll && (
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={onDownloadAll}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            Download all as ZIP
+          </Button>
         )}
       </div>
     </div>
