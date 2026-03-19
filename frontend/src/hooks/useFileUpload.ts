@@ -16,6 +16,11 @@ export function useFileUpload() {
 
     const entries: UploadedFile[] = fileArray
       .filter((file) => {
+        // #28 — reject 0-byte files (failed mobile camera captures)
+        if (file.size === 0) {
+          toast.error(`${file.name} is empty and cannot be processed.`);
+          return false;
+        }
         if (file.size > MAX_FILE_SIZE) {
           toast.error(
             `${file.name} is too large (${(file.size / 1048576).toFixed(1)} MB). Maximum is ${(MAX_FILE_SIZE / 1048576).toFixed(0)} MB.`

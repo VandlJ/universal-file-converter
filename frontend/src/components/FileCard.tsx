@@ -164,14 +164,31 @@ export function FileCard({
                 </span>
               )}
             </div>
-            {file.detection && category && (
-              <Badge
-                variant="secondary"
-                className={`mt-1 text-xs ${CATEGORY_COLORS[category] || ""}`}
-              >
-                {getCategoryLabel(category)} — {getFormatLabel(file.detection.format)}
-              </Badge>
-            )}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {file.detection && category && (
+                <Badge
+                  variant="secondary"
+                  className={`mt-1 text-xs ${CATEGORY_COLORS[category] || ""}`}
+                >
+                  {getCategoryLabel(category)} — {getFormatLabel(file.detection.format)}
+                </Badge>
+              )}
+              {/* #11 — Format/MIME mismatch warning */}
+              {file.detection &&
+                file.name.includes(".") &&
+                file.name.split(".").pop()?.toLowerCase() !==
+                  file.detection.format.toLowerCase() &&
+                file.name.split(".").pop()?.toLowerCase() !== "jpeg" &&
+                file.detection.format !== "jpg" && (
+                  <Badge
+                    variant="destructive"
+                    className="mt-1 flex items-center gap-1 text-[10px] py-0 px-1.5"
+                  >
+                    <AlertCircle className="h-2.5 w-2.5" />
+                    Format mismatch: actually {file.detection.format.toUpperCase()}
+                  </Badge>
+                )}
+            </div>
           </div>
         </div>
 
