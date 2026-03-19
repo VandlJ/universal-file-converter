@@ -19,5 +19,9 @@ export function getFileExtension(filename: string): string {
 }
 
 export function generateId(): string {
-  return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  // Fallback for non-secure contexts (HTTP)
+  return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }

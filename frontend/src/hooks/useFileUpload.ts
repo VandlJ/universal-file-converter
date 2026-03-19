@@ -31,12 +31,23 @@ export function useFileUpload() {
       })
       .map((file) => {
         const isImage = file.type.startsWith("image/");
+        let preview: string | undefined;
+        
+        // #39 — Wrap preview creation in try-catch (WebKit "SyntaxError" on iOS)
+        if (isImage) {
+          try {
+            preview = URL.createObjectURL(file);
+          } catch (e) {
+            console.error("Preview creation failed:", e);
+          }
+        }
+
         return {
           id: generateId(),
           file,
           name: file.name,
           size: file.size,
-          preview: isImage ? URL.createObjectURL(file) : undefined,
+          preview,
           options: {},
           status: "detecting" as const,
           progress: 0,
