@@ -3,6 +3,7 @@ import asyncio
 import magic
 
 from format_registry import EXTENSION_TO_CATEGORY, FORMAT_MAP
+from utils.mime_map import get_category_from_mime, get_format_from_mime
 
 
 async def check_pdf_is_scanned(filepath: str) -> bool:
@@ -35,8 +36,12 @@ async def detect_file(filepath: str, filename: str) -> dict:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     mime = magic.from_file(filepath, mime=True)
 
+    # Content-based inference
+    magic_format = get_format_from_mime(mime)
+    magic_category = get_category_from_mime(mime)
+
     # PDF is ambiguous: could be document, presentation source, or OCR target
-    if ext == "pdf":
+    if mime == "application/pdf" or ext == "pdf":
         is_scanned = await check_pdf_is_scanned(filepath)
         default_category = "ocr" if is_scanned else "document"
         return {
@@ -49,13 +54,26 @@ async def detect_file(filepath: str, filename: str) -> dict:
         }
 
     category = EXTENSION_TO_CATEGORY.get(ext)
+
+    # Resolution: prefer content (magic) over extension if they mismatch significantly
+    # or if the extension is missing.
+    final_format = ext
+    final_category = category
+
+    if not ext or (magic_format and magic_format != ext and magic_category):
+        # Mismatch or missing extension: prefer content detection
+        if magic_format:
+            final_format = magic_format
+        if magic_category:
+            final_category = magic_category
+
     available_outputs = []
-    if category and category in FORMAT_MAP:
-        available_outputs = FORMAT_MAP[category]["outputs"]
+    if final_category and final_category in FORMAT_MAP:
+        available_outputs = FORMAT_MAP[final_category]["outputs"]
 
     return {
-        "category": category,
-        "format": ext,
+        "category": final_category,
+        "format": final_format,
         "mime_type": mime,
         "is_ambiguous": False,
         "available_outputs": available_outputs,

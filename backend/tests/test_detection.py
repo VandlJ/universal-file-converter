@@ -46,18 +46,10 @@ async def test_detect_file_with_no_extension_returns_null_category(tmp_path):
         mock_magic.from_file.return_value = "image/jpeg"
         result = await detect_file(str(fake_file), "photo")
 
-    # Current (broken) behaviour — documents what actually happens:
-    assert result["format"] == ""
-    assert result["category"] is None
-    assert result["available_outputs"] == []
-
-    # Post-fix assertion — uncomment after fixing detect_file():
-    # assert result["category"] == "image", (
-    #     "MIME type is image/jpeg — backend should infer category='image' "
-    #     "when extension is absent."
-    # )
-    # assert result["format"] == "jpeg"
-    # assert len(result["available_outputs"]) > 0
+    # Correct behaviour:
+    assert result["category"] == "image"
+    assert result["format"] == "jpg"
+    assert len(result["available_outputs"]) > 0
 
 
 @pytest.mark.asyncio
@@ -86,15 +78,8 @@ async def test_detect_heic_bytes_under_jpg_extension_causes_format_mismatch(tmp_
         result = await detect_file(str(fake_file), "IMG_1234.jpg")
 
     assert result["mime_type"] == "image/heic"  # Correct: magic bytes
-    assert result["format"] == "jpg"            # Wrong: extension-based, not content-based
-    assert result["category"] == "image"        # Correct by coincidence (jpg → image)
-
-    # This assertion documents the bug and FAILS:
-    assert result["format"] == "heic", (
-        "When magic bytes reveal HEIC content under a .jpg extension, "
-        "format should be 'heic' so the converter uses the right codec path. "
-        "Fix: compare extension MIME with magic MIME; prefer magic when they differ."
-    )
+    assert result["format"] == "heic"            # Correct: content-based override
+    assert result["category"] == "image"        # Correct: content-based
 
 
 @pytest.mark.asyncio
@@ -113,10 +98,9 @@ async def test_detect_file_no_extension_handles_gracefully(tmp_path):
         mock_magic.from_file.return_value = "image/jpeg"
         result = await detect_file(str(fake_file), "")
 
-    # Current behaviour: ext="" → category=None (not ideal but doesn't crash)
-    assert result["format"] == ""
-    assert result["category"] is None
-    # After fix: category should be inferred from MIME type
+    # Correct behaviour:
+    assert result["format"] == "jpg"
+    assert result["category"] == "image"
 
 
 # ── WORKING BEHAVIOUR ─────────────────────────────────────────────────────────

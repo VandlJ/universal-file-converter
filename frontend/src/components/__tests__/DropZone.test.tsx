@@ -16,8 +16,10 @@ vi.mock("framer-motion", () => ({
     div: React.forwardRef(
       (
         {
-          animate: _,
-          transition: __,
+          /* eslint-disable @typescript-eslint/no-unused-vars */
+          animate,
+          transition,
+          /* eslint-enable @typescript-eslint/no-unused-vars */
           children,
           ...props
         }: React.ComponentPropsWithRef<"div"> & {
