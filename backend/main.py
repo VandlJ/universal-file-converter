@@ -32,6 +32,7 @@ from job_store import JobStore
 from models import BatchDownloadRequest, ConversionOptions, ConvertResponse, DetectionResponse, JobStatusResponse
 from utils.cleanup import cleanup_on_startup, cleanup_scheduler
 from utils.detection import detect_file
+from utils.mime_map import get_format_from_mime
 from utils.zip_builder import create_zip
 
 # ---------------------------------------------------------------------------
@@ -163,12 +164,16 @@ async def detect_uploaded_file(
     file: UploadFile = File(...), mime_type: str | None = Form(None)
 ):
     """Upload a file and return its detected type + available conversions."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided")
+    # #40 — Handle missing filenames on iOS/mobile
+    filename = file.filename or "uploaded_file"
+    if not file.filename and (mime_type or file.content_type):
+        fmt = get_format_from_mime(mime_type or file.content_type)
+        if fmt:
+            filename = f"upload.{fmt}"
 
     temp_dir = Path(settings.TEMP_DIR) / "detect"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = f"{uuid.uuid4().hex}_{_sanitize_filename(file.filename)}"
+    safe_name = f"{uuid.uuid4().hex}_{_sanitize_filename(filename)}"
     temp_path = temp_dir / safe_name
 
     try:
@@ -184,7 +189,7 @@ async def detect_uploaded_file(
                     )
                 out_f.write(chunk)
 
-        result = await detect_file(str(temp_path), file.filename, mime_type)
+        result = await detect_file(str(temp_path), filename, mime_type)
         return DetectionResponse(**result)
     finally:
         if temp_path.exists():
@@ -200,8 +205,14 @@ async def convert_file(
     options: str = Form("{}"),
 ):
     """Upload a file and start conversion. Returns job ID."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided")
+    # #40 — Handle missing filenames on iOS/mobile
+    filename = file.filename or "uploaded_file"
+    if not file.filename and file.content_type:
+        fmt = get_format_from_mime(file.content_type)
+        if fmt:
+            filename = f"upload.{fmt}"
+    
+    # ... (rest of the convert_file function, using 'filename' instead of 'file.filename')
 
     # Rate limiting
     client_ip = request.client.host if request.client else "unknown"
@@ -240,7 +251,7 @@ async def convert_file(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Stream uploaded file to disk, enforcing size limit
-    input_path = input_dir / _sanitize_filename(file.filename)
+    input_path = input_dir / _sanitize_filename(filename)
     try:
         bytes_written = 0
         with open(input_path, "wb") as out_f:
@@ -262,7 +273,7 @@ async def convert_file(
         "status": "pending",
         "progress": 0,
         "error": None,
-        "input_files": [file.filename],
+        "input_files": [filename],
         "output_files": [],
         "created_at": datetime.now().isoformat(),
         "created_at_ts": datetime.now().timestamp(),

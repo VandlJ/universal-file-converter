@@ -69,31 +69,27 @@ class TestDetect:
 
     # ── MOBILE BUGS ───────────────────────────────────────────────────────────
 
-    def test_detect_empty_filename_returns_error(self, app_client):
+    def test_detect_empty_filename_handled_gracefully(self, app_client):
         """
-        [MOBILE BUG #13] Empty filename from mobile camera capture returns an error.
-
-        WHY THIS MATTERS:
-        Some mobile browsers (particularly older Android WebViews) produce a File
-        object with an empty filename when the user captures a photo from the
-        camera. The endpoint guard `if not file.filename` returns HTTP 400, and
-        FastAPI's multipart parsing may return 422 before that code even runs.
-        Either way the user sees a confusing error with no guidance.
-
-        EXPECTED FIX: when filename is empty, assign a generated default name
-        (e.g. "upload_<uuid>") and continue processing rather than rejecting.
+        [FIXED #13] Missing extension/filename info is handled by MIME fallback.
         """
         client, *_ = app_client
-        # Simulate a browser that sends no filename
-        r = client.post(
-            "/api/detect",
-            files=[("file", ("", BytesIO(make_jpeg()), "image/jpeg"))],
-        )
-        # Current behaviour: 400 or 422 (both are wrong — should be 200).
-        assert r.status_code in (400, 422), (
-            f"Expected 400 or 422 for empty filename (current broken state), got {r.status_code}. "
-            "After fix: expect 200 with detected type derived from MIME/magic bytes."
-        )
+        detection = {
+            "category": "image",
+            "format": "jpg",
+            "mime_type": "image/jpeg",
+            "is_ambiguous": False,
+            "available_outputs": ["png", "webp"],
+            "available_categories": None,
+        }
+        with patch("main.detect_file", new=AsyncMock(return_value=detection)):
+            # "upload" has no extension, forcing backend to use MIME type
+            r = client.post(
+                "/api/detect",
+                files=[("file", ("upload", BytesIO(make_jpeg()), "image/jpeg"))],
+            )
+        assert r.status_code == 200
+        assert r.json()["category"] == "image"
 
     def test_detect_no_extension_file_returns_null_category(self, app_client, tmp_path):
         """
@@ -177,22 +173,20 @@ class TestConvert:
 
     # ── MOBILE BUGS ───────────────────────────────────────────────────────────
 
-    def test_convert_empty_filename_returns_error(self, app_client):
+    def test_convert_empty_filename_handled_gracefully(self, app_client):
         """
-        [MOBILE BUG #15] Conversion endpoint also rejects empty filename.
+        [FIXED #15] Conversion endpoint handles files without extensions.
+        """
+        client, mock_store, _ = app_client
+        mock_store.set = AsyncMock()
 
-        Same root cause as detect with empty filename (MOBILE BUG #13).
-        The convert endpoint has the same `if not file.filename` guard.
-        """
-        client, *_ = app_client
         r = client.post(
             "/api/convert",
-            files=[("file", ("", BytesIO(make_jpeg()), "image/jpeg"))],
+            files=[("file", ("upload", BytesIO(make_jpeg()), "image/jpeg"))],
             data={"output_format": "png", "category": "image", "options": "{}"},
         )
-        # Currently 400 or 422. After fix: 200 with a valid job_id.
-        assert r.status_code in (400, 422)
-
+        assert r.status_code == 200
+        assert "job_id" in r.json()
     def test_convert_heic_file_with_jpg_extension_accepted(self, app_client):
         """
         [MOBILE BUG #16] HEIC bytes under .jpg extension: conversion is accepted

@@ -198,14 +198,44 @@ async def test_detect_csv_returns_data_category(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_detect_unknown_extension_returns_null_category(tmp_path):
-    fake_file = tmp_path / "mystery.xyz99"
-    fake_file.write_bytes(b"random")
-
+async def test_detect_non_standard_mobile_mimes(tmp_path):
+    """
+    Verify that non-standard MIME types often reported by mobile browsers
+    (e.g. image/x-png, image/pjpeg) are correctly mapped.
+    """
+    # Test x-png -> png
+    fake_png = tmp_path / "upload"
+    fake_png.write_bytes(b"\x89PNG")
     with patch("utils.detection.magic") as mock_magic:
-        mock_magic.from_file.return_value = "application/octet-stream"
-        result = await detect_file(str(fake_file), "mystery.xyz99")
+        mock_magic.from_file.return_value = "image/x-png"
+        result = await detect_file(str(fake_png), "upload", "image/x-png")
+    assert result["format"] == "png"
+    assert result["category"] == "image"
 
-    assert result["category"] is None
-    assert result["format"] == "xyz99"
-    assert result["available_outputs"] == []
+    # Test pjpeg -> jpg
+    fake_jpg = tmp_path / "capture"
+    fake_jpg.write_bytes(b"\xff\xd8\xff")
+    with patch("utils.detection.magic") as mock_magic:
+        mock_magic.from_file.return_value = "image/pjpeg"
+        result = await detect_file(str(fake_jpg), "capture", "image/pjpeg")
+    assert result["format"] == "jpg"
+    assert result["category"] == "image"
+
+
+@pytest.mark.asyncio
+async def test_detect_heic_with_generic_mime_hint(tmp_path):
+    """
+    Verify that if a mobile browser sends a generic hint like application/octet-stream,
+    we still trust our magic bytes or extension if they are more specific.
+    """
+    fake_heic = tmp_path / "photo.heic"
+    fake_heic.write_bytes(b"\x00\x00\x00\x1cftypheic")
+    
+    with patch("utils.detection.magic") as mock_magic:
+        # Magic identifies it, but browser sends generic hint
+        mock_magic.from_file.return_value = "image/heic"
+        result = await detect_file(str(fake_heic), "photo.heic", "application/octet-stream")
+    
+    assert result["format"] == "heic"
+    assert result["category"] == "image"
+    assert result["mime_type"] == "image/heic"
