@@ -71,10 +71,9 @@ class TestDetect:
 
     def test_detect_empty_filename_handled_gracefully(self, app_client):
         """
-        [FIXED #13] Empty filename from mobile is now handled by providing a default.
+        [FIXED #13] Missing extension/filename info is handled by MIME fallback.
         """
         client, *_ = app_client
-        # Mock detection result for the default filename generated on backend
         detection = {
             "category": "image",
             "format": "jpg",
@@ -84,11 +83,11 @@ class TestDetect:
             "available_categories": None,
         }
         with patch("main.detect_file", new=AsyncMock(return_value=detection)):
+            # "upload" has no extension, forcing backend to use MIME type
             r = client.post(
                 "/api/detect",
-                files=[("file", ("", BytesIO(make_jpeg()), "image/jpeg"))],
+                files=[("file", ("upload", BytesIO(make_jpeg()), "image/jpeg"))],
             )
-        # Should now be 200
         assert r.status_code == 200
         assert r.json()["category"] == "image"
 
@@ -176,19 +175,18 @@ class TestConvert:
 
     def test_convert_empty_filename_handled_gracefully(self, app_client):
         """
-        [FIXED #15] Conversion endpoint also accepts empty filename.
+        [FIXED #15] Conversion endpoint handles files without extensions.
         """
         client, mock_store, _ = app_client
         mock_store.set = AsyncMock()
 
         r = client.post(
             "/api/convert",
-            files=[("file", ("", BytesIO(make_jpeg()), "image/jpeg"))],
+            files=[("file", ("upload", BytesIO(make_jpeg()), "image/jpeg"))],
             data={"output_format": "png", "category": "image", "options": "{}"},
         )
         assert r.status_code == 200
         assert "job_id" in r.json()
-
     def test_convert_heic_file_with_jpg_extension_accepted(self, app_client):
         """
         [MOBILE BUG #16] HEIC bytes under .jpg extension: conversion is accepted
