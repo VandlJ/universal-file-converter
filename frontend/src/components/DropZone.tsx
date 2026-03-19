@@ -17,6 +17,8 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   // #31 — counter prevents false dragleave when cursor crosses child elements
   const dragCounter = useRef(0);
 
@@ -138,6 +140,10 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          // #32 — handle touch for mobile
+          onTouchStart={() => setIsDragOver(true)}
+          onTouchEnd={() => setIsDragOver(false)}
+          data-touch-zone
           animate={isDragOver ? { scale: 1.02 } : { scale: 1 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
           className={`relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed bg-card transition-all duration-200 ${
@@ -152,6 +158,24 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
             ref={inputRef}
             type="file"
             multiple
+            accept="image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,audio/*,video/*"
+            className="hidden"
+            onChange={handleChange}
+          />
+          {/* #34 — camera capture input */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleChange}
+          />
+          {/* #35 — photo library input */}
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
             className="hidden"
             onChange={handleChange}
           />
@@ -172,7 +196,12 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
 
           <div className="text-center">
             <p className="text-sm font-medium">
-              {isDragOver ? "Release to upload" : "Drop files here or click to browse"}
+              <span className="md:inline hidden">
+                {isDragOver ? "Release to upload" : "Drop files here or click to browse"}
+              </span>
+              <span className="md:hidden inline">
+                {isDragOver ? "Release to upload" : "Tap to select files"}
+              </span>
             </p>
             {!compact && (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -183,18 +212,41 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
 
           {!compact && (
             <div className="flex flex-col items-center gap-2">
-              <button
-                type="button"
-                className="cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  inputRef.current?.click();
-                }}
-              >
-                Browse files
-              </button>
-              {/* #30 — paste hint */}
-              <span className="flex items-center gap-1 text-xs text-muted-foreground/60">
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  className="cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60 min-h-[44px] flex items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    inputRef.current?.click();
+                  }}
+                >
+                  Browse files
+                </button>
+                {/* #34 + #35 — mobile-specific buttons */}
+                <button
+                  type="button"
+                  className="md:hidden flex cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60 min-h-[44px] items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cameraInputRef.current?.click();
+                  }}
+                >
+                  Take photo
+                </button>
+                <button
+                  type="button"
+                  className="md:hidden flex cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60 min-h-[44px] items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    galleryInputRef.current?.click();
+                  }}
+                >
+                  Choose from library
+                </button>
+              </div>
+              {/* #30 — paste hint (hidden on touch devices) */}
+              <span className="md:flex hidden items-center gap-1 text-xs text-muted-foreground/60">
                 <Keyboard className="h-3 w-3" />
                 or paste with Ctrl+V / ⌘V
               </span>

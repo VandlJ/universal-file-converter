@@ -159,7 +159,9 @@ async def get_format_registry():
 
 
 @app.post("/api/detect", response_model=DetectionResponse)
-async def detect_uploaded_file(file: UploadFile = File(...)):
+async def detect_uploaded_file(
+    file: UploadFile = File(...), mime_type: str | None = Form(None)
+):
     """Upload a file and return its detected type + available conversions."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
@@ -182,7 +184,7 @@ async def detect_uploaded_file(file: UploadFile = File(...)):
                     )
                 out_f.write(chunk)
 
-        result = await detect_file(str(temp_path), file.filename)
+        result = await detect_file(str(temp_path), file.filename, mime_type)
         return DetectionResponse(**result)
     finally:
         if temp_path.exists():

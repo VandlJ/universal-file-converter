@@ -12,11 +12,12 @@ import * as path from "path";
 import { test, expect } from "@playwright/test";
 import { mockBackend, fakeJpeg } from "./helpers";
 
-// ── Full happy-path flow ───────────────────────────────────────────────────
+test.describe("Upload Flow", () => {
+  // ── Full happy-path flow ───────────────────────────────────────────────────
 
-test("full flow: upload → auto-detect → pick format → convert → download appears", async ({
-  page,
-}) => {
+  test("full flow: upload → auto-detect → pick format → convert → download appears", async ({
+    page,
+  }) => {
   await mockBackend(page);
   await page.goto("/");
 
@@ -90,7 +91,9 @@ test("detection API failure shows error on the file card", async ({ page }) => {
     buffer: fakeJpeg(),
   });
 
-  await expect(page.getByText("broken.jpg")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText("broken.jpg", { exact: true })).toBeVisible({
+    timeout: 5_000,
+  });
   await expect(page.getByText(/failed|error/i).first()).toBeVisible({ timeout: 5_000 });
 });
 
@@ -154,4 +157,5 @@ test("URL fetch: Fetch button is disabled for empty input", async ({ page }) => 
 
   await page.getByRole("button", { name: "From URL" }).click();
   await expect(page.getByRole("button", { name: "Fetch" })).toBeDisabled();
+});
 });

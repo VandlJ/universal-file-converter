@@ -16,6 +16,8 @@ export async function fetchFormats(): Promise<FormatRegistry> {
 export async function detectFile(file: File): Promise<FileDetectionResult> {
   const formData = new FormData();
   formData.append("file", file);
+  // #20 — send MIME type hint to backend
+  formData.append("mime_type", file.type);
 
   const res = await fetch(`${API_BASE}/api/detect`, {
     method: "POST",

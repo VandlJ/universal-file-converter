@@ -27,7 +27,9 @@ async def check_pdf_is_scanned(filepath: str) -> bool:
         return False
 
 
-async def detect_file(filepath: str, filename: str) -> dict:
+async def detect_file(
+    filepath: str, filename: str, mime_type_hint: str | None = None
+) -> dict:
     """Detect file type using extension and magic bytes.
 
     Returns dict with category, format, mime_type, is_ambiguous,
@@ -35,6 +37,10 @@ async def detect_file(filepath: str, filename: str) -> dict:
     """
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     mime = magic.from_file(filepath, mime=True)
+
+    # Use hint if magic is generic and hint is more specific
+    if mime in ("application/octet-stream", "text/plain") and mime_type_hint:
+        mime = mime_type_hint
 
     # Content-based inference
     magic_format = get_format_from_mime(mime)

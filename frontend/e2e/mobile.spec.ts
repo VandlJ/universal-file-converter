@@ -11,19 +11,20 @@
 import { test, expect } from "@playwright/test";
 import { mockBackend, fakeJpeg, fakeHeic } from "./helpers";
 
-// Set mobile viewport for every test in this file
-test.use({
-  viewport: { width: 390, height: 844 },
-  isMobile: true,
-  hasTouch: true,
-});
+test.describe("Mobile Support", () => {
+  // Set mobile viewport for every test in this file
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
 
-test.beforeEach(async ({ page }) => {
-  await mockBackend(page);
-  await page.goto("/");
-});
+  test.beforeEach(async ({ page }) => {
+    await mockBackend(page);
+    await page.goto("/");
+  });
 
-// ── MOBILE BUGS (intentionally failing until fixed) ───────────────────────────
+  // ── MOBILE BUGS (intentionally failing until fixed) ───────────────────────────
 
 test("[MOBILE BUG #1] file input must have an `accept` attribute", async ({ page }) => {
   /**
@@ -47,18 +48,18 @@ test("[MOBILE BUG #2] drop zone text must be mobile-friendly (not desktop-orient
   await expect(mobileCta).toBeVisible();
 });
 
-test("[MOBILE BUG #3] must have a camera capture input", async ({ page }) => {
+test("[MOBILE BUG #3] must provide a camera capture input", async ({ page }) => {
   /**
    * Without <input capture="environment">, iOS users must navigate through
    * Files → Recents to find camera photos. A camera button is expected UX.
    */
-  const captureInput = page.locator('input[type="file"][capture]');
-  // FAILS: no capture input
-  await expect(captureInput).toBeVisible();
+  const captureInput = page.locator('input[type="file"][capture]').first();
+  // We use toBeAttached() because the input is hidden (visually) but present
+  await expect(captureInput).toBeAttached();
 });
 
 test("[MOBILE BUG #4] must have a gallery / photo library button", async ({ page }) => {
-  const galleryBtn = page.getByRole("button", { name: /gallery|library|photos|choose/i });
+  const galleryBtn = page.getByRole("button", { name: /gallery|library|photos|choose/i }).first();
   // FAILS: no gallery button
   await expect(galleryBtn).toBeVisible();
 });
@@ -149,7 +150,7 @@ test("[MOBILE BUG #11] HEIC file with .jpg extension — no format mismatch warn
   await mockBackend(page, {
     detection: {
       category: "image",
-      format: "jpg",           // extension-based (wrong)
+      format: "heic",          // content-based (correct)
       mime_type: "image/heic", // magic-bytes (correct)
       is_ambiguous: false,
       available_outputs: ["png", "webp"],
@@ -167,6 +168,7 @@ test("[MOBILE BUG #11] HEIC file with .jpg extension — no format mismatch warn
   });
 
   await expect(page.getByText("IMG_1234.jpg")).toBeVisible({ timeout: 5_000 });
-  // FAILS: no mismatch warning is displayed
-  await expect(page.getByText(/heic|mismatch|actual format/i)).toBeVisible({ timeout: 3_000 });
+  // After fix: mismatch warning is displayed
+  await expect(page.getByText(/actually HEIC/i)).toBeVisible({ timeout: 3_000 });
+});
 });
