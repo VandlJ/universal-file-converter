@@ -32,6 +32,7 @@ from job_store import JobStore
 from models import BatchDownloadRequest, ConversionOptions, ConvertResponse, DetectionResponse, JobStatusResponse
 from utils.cleanup import cleanup_on_startup, cleanup_scheduler
 from utils.detection import detect_file
+from utils.mime_map import get_format_from_mime
 from utils.zip_builder import create_zip
 
 # ---------------------------------------------------------------------------
@@ -157,10 +158,6 @@ async def get_format_registry():
     """Return all supported input->output format mappings."""
     return get_formats()
 
-
-from utils.mime_map import get_category_from_mime, get_format_from_mime
-
-# ... (other imports)
 
 @app.post("/api/detect", response_model=DetectionResponse)
 async def detect_uploaded_file(
