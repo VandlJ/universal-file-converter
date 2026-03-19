@@ -17,8 +17,6 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
   // #31 — counter prevents false dragleave when cursor crosses child elements
   const dragCounter = useRef(0);
 
@@ -162,23 +160,6 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
             className="hidden"
             onChange={handleChange}
           />
-          {/* #34 — camera capture input */}
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleChange}
-          />
-          {/* #35 — photo library input */}
-          <input
-            ref={galleryInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleChange}
-          />
 
           <motion.div
             animate={{ y: [0, -6, 0] }}
@@ -215,34 +196,13 @@ export function DropZone({ onFilesAdded, compact }: DropZoneProps) {
               <div className="flex flex-wrap justify-center gap-2">
                 <button
                   type="button"
-                  className="cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60 min-h-[44px] flex items-center justify-center"
+                  className="cursor-pointer rounded-md border border-primary/30 px-6 py-2 text-sm font-medium text-primary transition-all hover:bg-primary/10 hover:border-primary/60 min-h-[44px] flex items-center justify-center active:scale-95 shadow-sm"
                   onClick={(e) => {
                     e.stopPropagation();
                     inputRef.current?.click();
                   }}
                 >
                   Browse files
-                </button>
-                {/* #34 + #35 — mobile-specific buttons */}
-                <button
-                  type="button"
-                  className="md:hidden flex cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60 min-h-[44px] items-center justify-center"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cameraInputRef.current?.click();
-                  }}
-                >
-                  Take photo
-                </button>
-                <button
-                  type="button"
-                  className="md:hidden flex cursor-pointer rounded-md border border-primary/30 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 hover:border-primary/60 min-h-[44px] items-center justify-center"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    galleryInputRef.current?.click();
-                  }}
-                >
-                  Choose from library
                 </button>
               </div>
               {/* #30 — paste hint (hidden on touch devices) */}

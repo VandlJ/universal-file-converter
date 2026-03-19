@@ -140,6 +140,11 @@ export function FileCard({
                 src={file.preview}
                 alt={file.name}
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                  // Fallback to icon is handled by the container being bg-muted
+                  // and we could potentially trigger a state update here if needed
+                }}
               />
             ) : (
               <CategoryIcon className="h-5 w-5 text-muted-foreground" />

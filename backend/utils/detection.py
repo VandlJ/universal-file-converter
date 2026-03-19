@@ -40,11 +40,20 @@ async def detect_file(
 
     # Use hint if magic is generic and hint is more specific
     if mime in ("application/octet-stream", "text/plain") and mime_type_hint:
-        mime = mime_type_hint
+        # Filter out generic/useless hints
+        if mime_type_hint not in ("application/octet-stream", "application/x-download"):
+            mime = mime_type_hint
 
     # Content-based inference
     magic_format = get_format_from_mime(mime)
     magic_category = get_category_from_mime(mime)
+
+    # Fallback for HEIC if magic fails (common on older systems)
+    if not magic_format and ext in ("heic", "heif"):
+        magic_format = ext
+        magic_category = "image"
+        if not mime or mime == "application/octet-stream":
+            mime = f"image/{ext}"
 
     # PDF is ambiguous: could be document, presentation source, or OCR target
     if mime == "application/pdf" or ext == "pdf":
